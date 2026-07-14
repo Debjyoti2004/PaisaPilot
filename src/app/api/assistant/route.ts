@@ -152,6 +152,9 @@ export async function POST(req: NextRequest) {
     }
     const msg = err instanceof Error ? err.message : String(err)
     console.error('Assistant error:', msg)
-    return NextResponse.json({ message: `AI error: ${msg.slice(0, 200)}` })
+    if (msg.includes('429') || msg.includes('quota') || msg.includes('Too Many')) {
+      return NextResponse.json({ message: "I'm getting too many requests right now. Please wait a moment and try again." })
+    }
+    return NextResponse.json({ message: 'Sorry, I had trouble thinking that through. Please try again.' })
   }
 }
