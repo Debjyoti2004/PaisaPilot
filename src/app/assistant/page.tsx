@@ -43,10 +43,11 @@ export default function AssistantPage() {
     setInput('')
     setLoading(true)
     try {
+      const history = messages.slice(1).map(m => ({ role: m.role, content: m.content }))
       const r = await fetch('/api/assistant', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg }),
+        body: JSON.stringify({ message: msg, history }),
       })
       const d = await r.json()
       setMessages(m => [...m, { role: 'assistant', content: d.message, ts: new Date() }])

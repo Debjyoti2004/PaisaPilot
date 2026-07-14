@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useSession, signOut } from 'next-auth/react'
 import { TopBar } from '@/components/layout/TopBar'
-import { Bell, Mail, IndianRupee, LogOut, Check, ShieldCheck } from 'lucide-react'
+import { Bell, Mail, IndianRupee, LogOut, Check, ShieldCheck, FileDown, Loader2 } from 'lucide-react'
 
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
@@ -34,6 +34,8 @@ export default function ProfilePage() {
   const [settings, setSettings] = useState({ expectedSalary: 37000, savingsFloor: 3000, emailReports: false, reportEmail: '' })
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
+  const [reportLoading, setReportLoading] = useState(false)
+  const [reportMsg, setReportMsg] = useState('')
 
   useEffect(() => {
     fetch('/api/settings')
@@ -52,6 +54,36 @@ export default function ProfilePage() {
       })
       .catch(() => setLoaded(true))
   }, [])
+
+  const downloadReport = async () => {
+    setReportLoading(true)
+    setReportMsg('')
+    try {
+      const res = await fetch('/api/reports/monthly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: settings.emailReports ? settings.reportEmail : undefined }),
+      })
+      if (res.headers.get('content-type')?.includes('application/pdf')) {
+        const blob = await res.blob()
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `PaisaPilot-report.pdf`
+        a.click()
+        URL.revokeObjectURL(url)
+        setReportMsg('PDF downloaded!')
+      } else {
+        const d = await res.json()
+        setReportMsg(d.message ?? 'Report sent!')
+      }
+    } catch {
+      setReportMsg('Failed to generate report')
+    } finally {
+      setReportLoading(false)
+      setTimeout(() => setReportMsg(''), 4000)
+    }
+  }
 
   const save = async () => {
     await fetch('/api/settings', {
@@ -204,6 +236,17 @@ export default function ProfilePage() {
             <span className="flex items-center justify-center gap-2"><Check size={16} /> Saved!</span>
           ) : 'Save Settings'}
         </button>
+
+        {/* Download report */}
+        <button
+          onClick={downloadReport}
+          disabled={reportLoading}
+          className="w-full py-3.5 rounded-xl font-semibold text-[14px] bg-emerald-600/10 hover:bg-emerald-600/20 border border-emerald-500/20 text-emerald-400 transition-all flex items-center justify-center gap-2 disabled:opacity-60"
+        >
+          {reportLoading ? <Loader2 size={15} className="animate-spin" /> : <FileDown size={15} />}
+          {reportLoading ? 'Generating PDF…' : 'Download Monthly Report'}
+        </button>
+        {reportMsg && <p className="text-center text-[12px] text-emerald-400">{reportMsg}</p>}
 
         {/* Sign out */}
         <button

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
 import { createHash } from 'crypto'
+import { createTxNotification } from '@/lib/notifications'
 
 export const dynamic = 'force-dynamic'
 
@@ -119,6 +120,16 @@ export async function POST(request: NextRequest) {
         })
       }
     }
+
+    // Fire-and-forget notifications (don't block response)
+    const catName = transaction.category?.name ?? category?.name ?? 'Other'
+    createTxNotification(userId, {
+      narration,
+      amount: parsedAmount,
+      type,
+      categoryName: catName,
+      envelopeId,
+    }).catch(() => {})
 
     return NextResponse.json({ transaction }, { status: 201 })
   } catch (error: unknown) {
