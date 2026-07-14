@@ -1,10 +1,10 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { useSession, signOut } from 'next-auth/react'
 import { TopBar } from '@/components/layout/TopBar'
-import { Bell, Mail, IndianRupee, Shield, Check } from 'lucide-react'
+import { Bell, Mail, IndianRupee, LogOut, Check, ShieldCheck } from 'lucide-react'
 
-// Defined OUTSIDE component to prevent remount on state change
 function Section({ title, icon: Icon, children }: { title: string; icon: React.ElementType; children: React.ReactNode }) {
   return (
     <div className="bg-[#13131f] border border-white/[0.07] rounded-2xl overflow-hidden">
@@ -30,16 +30,16 @@ function FieldRow({ label, value, note }: { label: string; value: React.ReactNod
 }
 
 export default function ProfilePage() {
+  const { data: session } = useSession()
   const [settings, setSettings] = useState({ expectedSalary: 37000, savingsFloor: 3000, emailReports: false, reportEmail: '' })
   const [saved, setSaved] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
-  // Load existing settings on mount
   useEffect(() => {
     fetch('/api/settings')
       .then(r => r.json())
       .then(d => {
-        if (d && d.settings) {
+        if (d?.settings) {
           setSettings(s => ({
             ...s,
             expectedSalary: d.settings.expectedSalary ?? s.expectedSalary,
@@ -63,12 +63,18 @@ export default function ProfilePage() {
     setTimeout(() => setSaved(false), 2000)
   }
 
+  const user = session?.user as { id?: string; name?: string | null; email?: string | null; image?: string | null } | undefined
+
+  const initials = user?.name
+    ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    : (user?.email?.[0] ?? 'U').toUpperCase()
+
   if (!loaded) {
     return (
       <>
         <TopBar title="Profile" subtitle="Settings & preferences" />
         <div className="flex-1 p-4 md:p-6 pb-32 md:pb-6 space-y-4 max-w-2xl mx-auto w-full">
-          {[1,2,3,4].map(i => <div key={i} className="h-32 skeleton rounded-2xl" />)}
+          {[1, 2, 3, 4].map(i => <div key={i} className="h-32 skeleton rounded-2xl" />)}
         </div>
       </>
     )
@@ -81,13 +87,20 @@ export default function ProfilePage() {
 
         {/* User card */}
         <div className="bg-gradient-to-r from-indigo-600/10 to-violet-600/10 border border-indigo-500/20 rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
-            <span className="text-2xl font-bold text-indigo-400">T</span>
-          </div>
-          <div>
-            <p className="text-[16px] font-bold text-white">Test User</p>
-            <p className="text-[12px] text-slate-500 mt-0.5">test@gmail.com</p>
-            <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-amber-500/15 text-amber-400">Dev Mode</span>
+          {user?.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.image} alt={user.name ?? 'User'} className="w-14 h-14 rounded-2xl object-cover border border-indigo-500/30" />
+          ) : (
+            <div className="w-14 h-14 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center">
+              <span className="text-xl font-bold text-indigo-400">{initials}</span>
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-[16px] font-bold text-white truncate">{user?.name ?? 'User'}</p>
+            <p className="text-[12px] text-slate-500 mt-0.5 truncate">{user?.email ?? ''}</p>
+            <span className="inline-block mt-1.5 text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-400">
+              Google Account
+            </span>
           </div>
         </div>
 
@@ -123,19 +136,19 @@ export default function ProfilePage() {
         {/* Notifications */}
         <Section title="Notifications" icon={Bell}>
           <FieldRow label="Duplicate transaction alert" note="Warn when adding similar expense" value={
-            <button className="w-10 h-6 bg-indigo-600 rounded-full flex items-center justify-end px-0.5 transition-all">
+            <div className="w-10 h-6 bg-indigo-600 rounded-full flex items-center justify-end px-0.5">
               <div className="w-5 h-5 rounded-full bg-white" />
-            </button>
+            </div>
           } />
           <FieldRow label="Budget overrun alert" note="Notify when envelope is 90% full" value={
-            <button className="w-10 h-6 bg-indigo-600 rounded-full flex items-center justify-end px-0.5 transition-all">
+            <div className="w-10 h-6 bg-indigo-600 rounded-full flex items-center justify-end px-0.5">
               <div className="w-5 h-5 rounded-full bg-white" />
-            </button>
+            </div>
           } />
           <FieldRow label="Monthly report reminder" note="Remind to record salary each month" value={
-            <button className="w-10 h-6 bg-white/[0.1] rounded-full flex items-center justify-start px-0.5 transition-all">
+            <div className="w-10 h-6 bg-white/[0.1] rounded-full flex items-center justify-start px-0.5">
               <div className="w-5 h-5 rounded-full bg-slate-400" />
-            </button>
+            </div>
           } />
         </Section>
 
@@ -168,17 +181,17 @@ export default function ProfilePage() {
           )}
         </Section>
 
-        {/* Security */}
-        <Section title="Security" icon={Shield}>
+        {/* Auth */}
+        <Section title="Account Security" icon={ShieldCheck}>
           <FieldRow
-            label="Dev Mode Login"
-            note="test@gmail.com / test@2026 (disabled in production)"
-            value={<span className="text-[11px] text-amber-400 font-semibold">Active</span>}
+            label="Sign-in method"
+            note="Your account is secured with Google OAuth"
+            value={<span className="text-[11px] text-emerald-400 font-semibold">Google</span>}
           />
           <FieldRow
-            label="Production Auth"
-            note="JWT-based auth — implement before going live"
-            value={<span className="text-[11px] text-slate-600">TODO</span>}
+            label="Data isolation"
+            note="Your data is private — never shared with other users"
+            value={<span className="text-[11px] text-emerald-400 font-semibold">Active</span>}
           />
         </Section>
 
@@ -192,8 +205,16 @@ export default function ProfilePage() {
           ) : 'Save Settings'}
         </button>
 
-        {/* Bottom padding for mobile nav */}
-        <div className="h-20" />
+        {/* Sign out */}
+        <button
+          onClick={() => signOut({ callbackUrl: '/login' })}
+          className="w-full py-3.5 rounded-xl font-semibold text-[14px] bg-white/[0.04] hover:bg-red-500/10 border border-white/[0.08] hover:border-red-500/30 text-slate-400 hover:text-red-400 transition-all flex items-center justify-center gap-2"
+        >
+          <LogOut size={15} />
+          Sign Out
+        </button>
+
+        <div className="h-6" />
       </div>
     </>
   )
