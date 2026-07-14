@@ -49,7 +49,8 @@ RUN addgroup --system --gid 1001 nodejs && \
 # Copy standalone build
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
-COPY --from=builder /app/public ./public
+# public/ may be empty — copy only if it exists
+COPY --from=builder /app/public* ./public/
 
 # Copy Prisma for migrations + seed
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
