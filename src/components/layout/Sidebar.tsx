@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useSession } from 'next-auth/react'
 import {
   LayoutDashboard, ArrowLeftRight, Wallet, PiggyBank,
   Target, TrendingUp, Scissors, Calculator, Bot,
@@ -45,6 +46,12 @@ const NAV = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { data: session } = useSession()
+
+  const user = session?.user as { name?: string | null; email?: string | null; image?: string | null } | undefined
+  const initials = user?.name
+    ? user.name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+    : (user?.email?.[0] ?? 'U').toUpperCase()
 
   return (
     <aside className="sidebar-desktop fixed left-0 top-0 h-full w-[240px] bg-[#0f0f1a] border-r border-white/[0.07] flex flex-col z-40 select-none">
@@ -85,16 +92,21 @@ export function Sidebar() {
 
       {/* User card */}
       <div className="p-3 border-t border-white/[0.07]">
-        <div className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.04] transition-colors cursor-pointer group">
-          <div className="w-7 h-7 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center flex-shrink-0">
-            <span className="text-[11px] font-bold text-indigo-400">T</span>
-          </div>
+        <Link href="/profile" className="flex items-center gap-3 px-3 py-2.5 rounded-xl hover:bg-white/[0.04] transition-colors cursor-pointer group">
+          {user?.image ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={user.image} alt={user.name ?? 'User'} className="w-7 h-7 rounded-full object-cover flex-shrink-0" />
+          ) : (
+            <div className="w-7 h-7 rounded-full bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center flex-shrink-0">
+              <span className="text-[11px] font-bold text-indigo-400">{initials}</span>
+            </div>
+          )}
           <div className="flex-1 min-w-0">
-            <p className="text-[12px] font-semibold text-slate-200 truncate leading-none">Test User</p>
-            <p className="text-[10px] text-slate-500 mt-0.5 truncate">test@gmail.com</p>
+            <p className="text-[12px] font-semibold text-slate-200 truncate leading-none">{user?.name ?? 'User'}</p>
+            <p className="text-[10px] text-slate-500 mt-0.5 truncate">{user?.email ?? ''}</p>
           </div>
           <ChevronRight size={12} className="text-slate-600 group-hover:text-slate-400 flex-shrink-0" />
-        </div>
+        </Link>
       </div>
     </aside>
   )

@@ -27,7 +27,10 @@
       "Bash(node *)",
       "Bash(npm list *)",
       "Bash(echo \"PID=$!\")",
-      "Bash(ipconfig getifaddr *)"
+      "Bash(ipconfig getifaddr *)",
+      "Bash(git -C /Users/debjyotishit/Downloads/Development/PaisaPilot add Dockerfile)",
+      "Bash(git commit -m ' *)",
+      "Bash(git push *)"
     ]
   }
 }
