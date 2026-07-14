@@ -1,0 +1,174 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model User {
+  id        String   @id @default(uuid())
+  email     String   @unique
+  password  String
+  name      String   @default("User")
+  avatar    String?
+  createdAt DateTime @default(now())
+}
+
+model Category {
+  id           String        @id @default(uuid())
+  name         String        @unique
+  kind         String
+  icon         String
+  color        String
+  parentId     String?
+  parent       Category?     @relation("SubCategories", fields: [parentId], references: [id])
+  children     Category[]    @relation("SubCategories")
+  transactions Transaction[]
+  envelopes    Envelope[]
+  splitRules   SplitRule[]
+  suggestions  Suggestion[]
+  createdAt    DateTime      @default(now())
+}
+
+model SplitConfig {
+  id            String         @id @default(uuid())
+  name          String
+  active        Boolean        @default(false)
+  version       Int            @default(1)
+  activeFrom    DateTime?
+  activeUntil   DateTime?
+  rules         SplitRule[]
+  adjustRule    AdjustRule?
+  budgetPeriods BudgetPeriod[]
+  createdAt     DateTime       @default(now())
+}
+
+model SplitRule {
+  id         String      @id @default(uuid())
+  configId   String
+  config     SplitConfig @relation(fields: [configId], references: [id])
+  categoryId String
+  category   Category    @relation(fields: [categoryId], references: [id])
+  mode       String
+  value      Float
+  priority   Int         @default(0)
+  minFloor   Float?
+  maxCap     Float?
+  flexRank   Int         @default(5)
+}
+
+model AdjustRule {
+  id             String      @id @default(uuid())
+  configId       String      @unique
+  config         SplitConfig @relation(fields: [configId], references: [id])
+  surplusSplit   Json
+  shortfallOrder Json
+}
+
+model BudgetPeriod {
+  id             String      @id @default(uuid())
+  configId       String
+  config         SplitConfig @relation(fields: [configId], references: [id])
+  month          DateTime
+  incomeTotal    Float       @default(0)
+  expectedIncome Float       @default(37000)
+  status         String      @default("active")
+  envelopes      Envelope[]
+  createdAt      DateTime    @default(now())
+}
+
+model Envelope {
+  id           String       @id @default(uuid())
+  periodId     String
+  period       BudgetPeriod @relation(fields: [periodId], references: [id])
+  categoryId   String
+  category     Category     @relation(fields: [categoryId], references: [id])
+  allocated    Float
+  spent        Float        @default(0)
+  rollover     Boolean      @default(false)
+  transactions Transaction[]
+}
+
+model Transaction {
+  id          String    @id @default(uuid())
+  envelopeId  String?
+  envelope    Envelope? @relation(fields: [envelopeId], references: [id])
+  categoryId  String
+  category    Category  @relation(fields: [categoryId], references: [id])
+  amount      Float
+  type        String
+  source      String    @default("manual")
+  narration   String
+  merchantKey String?
+  note        String?
+  dedupeHash  String?   @unique
+  occurredAt  DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+}
+
+model SavingsBucket {
+  id        String        @id @default(uuid())
+  name      String
+  liquidity String
+  balance   Float         @default(0)
+  icon      String        @default("💰")
+  color     String        @default("#10b981")
+  entries   BucketEntry[]
+  createdAt DateTime      @default(now())
+}
+
+model BucketEntry {
+  id        String        @id @default(uuid())
+  bucketId  String
+  bucket    SavingsBucket @relation(fields: [bucketId], references: [id])
+  amount    Float
+  month     DateTime
+  note      String?
+  createdAt DateTime      @default(now())
+}
+
+model Goal {
+  id            String    @id @default(uuid())
+  name          String
+  icon          String    @default("🎯")
+  color         String    @default("#6366f1")
+  targetAmount  Float
+  savedAmount   Float     @default(0)
+  deadline      DateTime?
+  monthlyNeeded Float?
+  status        String    @default("active")
+  createdAt     DateTime  @default(now())
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  title     String
+  message   String
+  type      String   @default("info")
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+model Suggestion {
+  id          String    @id @default(uuid())
+  categoryId  String?
+  category    Category? @relation(fields: [categoryId], references: [id])
+  kind        String
+  payload     Json
+  status      String    @default("pending")
+  snoozeUntil DateTime?
+  createdAt   DateTime  @default(now())
+}
+
+model AppSettings {
+  id             String  @id @default("singleton")
+  expectedSalary Float   @default(37000)
+  savingsFloor   Float   @default(3000)
+  currency       String  @default("INR")
+  salaryKeywords String  @default("salary,credit,sal")
+  emailReports   Boolean @default(false)
+  reportEmail    String  @default("")
+}

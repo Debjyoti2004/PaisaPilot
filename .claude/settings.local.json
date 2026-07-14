@@ -1,0 +1,33 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx create-next-app@latest *)",
+      "Bash(npx prisma *)",
+      "Bash(npx tsc *)",
+      "Bash(npm run *)",
+      "Read(//private/tmp/**)",
+      "Read(//private/var/folders/**)",
+      "Bash(curl -s http://localhost:3000)",
+      "Bash(curl -s http://localhost:3000/api/dashboard)",
+      "Bash(pkill -f \"next dev\")",
+      "Bash(docker-compose up *)",
+      "Bash(docker --version)",
+      "Bash(psql --version)",
+      "Bash(brew services *)",
+      "Bash(open -a Docker)",
+      "Bash(docker info *)",
+      "Bash(docker exec *)",
+      "Bash(npm install *)",
+      "Bash(python3 -m json.tool)",
+      "Bash(curl -s http://localhost:3000/categories)",
+      "Bash(curl *)",
+      "Bash(pkill -f \"next-server\")",
+      "Bash(echo \"Started, PID=$!\")",
+      "Bash(npx playwright *)",
+      "Bash(node *)",
+      "Bash(npm list *)",
+      "Bash(echo \"PID=$!\")",
+      "Bash(ipconfig getifaddr *)"
+    ]
+  }
+}
