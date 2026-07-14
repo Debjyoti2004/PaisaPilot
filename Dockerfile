@@ -52,9 +52,11 @@ COPY --from=builder /app/.next/static ./.next/static
 # public/ may be empty — copy only if it exists
 COPY --from=builder /app/public* ./public/
 
-# Copy Prisma for migrations + seed
-COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+# Copy Prisma client + CLI so entrypoint can run db push
+COPY --from=builder /app/node_modules/.prisma    ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma    ./node_modules/@prisma
+COPY --from=builder /app/node_modules/prisma     ./node_modules/prisma
+COPY --from=builder /app/node_modules/.bin/prisma ./node_modules/.bin/prisma
 COPY --from=builder /app/prisma ./prisma
 
 # Entrypoint: run migrations then start app
