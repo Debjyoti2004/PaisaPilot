@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import OpenAI from 'openai'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
 
@@ -116,47 +116,34 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Please ask me something!' })
     }
 
-    const endpoint = process.env.AZURE_OPENAI_ENDPOINT
-    const apiKey = process.env.AZURE_OPENAI_KEY
-    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5-mini'
-
-    if (!endpoint || !apiKey) {
-      return NextResponse.json({ message: 'AI is not configured. Please add AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY to env.' })
+    const apiKey = process.env.GEMINI_API_KEY
+    if (!apiKey) {
+      return NextResponse.json({ message: 'AI not configured. Add GEMINI_API_KEY to env.' })
     }
 
     const context = await buildFinancialContext(userId)
 
-    const client = new OpenAI({
-      baseURL: `${endpoint}/openai/deployments/${deployment}`,
-      apiKey,
-      defaultQuery: { 'api-version': '2025-01-01-preview' },
-      defaultHeaders: { 'api-key': apiKey },
+    const genAI = new GoogleGenerativeAI(apiKey)
+    const model = genAI.getGenerativeModel({
+      model: 'gemini-1.5-flash',
+      systemInstruction: context,
     })
 
-    // Build message history (last 10 turns)
     const rawHistory = Array.isArray(body.history) ? body.history : []
-    const historyMessages: OpenAI.Chat.ChatCompletionMessageParam[] = rawHistory
+    const history = rawHistory
       .filter((h): h is { role: string; content: string } =>
         typeof h === 'object' && h !== null && 'role' in h && 'content' in h
       )
       .slice(-10)
       .map(h => ({
-        role: (h.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-        content: h.content,
+        role: h.role === 'user' ? 'user' : 'model',
+        parts: [{ text: h.content }],
       }))
 
-    const response = await client.chat.completions.create({
-      model: deployment,
-      messages: [
-        { role: 'system', content: context },
-        ...historyMessages,
-        { role: 'user', content: message },
-      ],
-      max_tokens: 600,
-      temperature: 0.7,
-    })
+    const chat = model.startChat({ history })
+    const result = await chat.sendMessage(message)
+    const text = result.response.text()
 
-    const text = response.choices[0]?.message?.content ?? 'No response from AI.'
     return NextResponse.json({ message: text })
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
@@ -164,8 +151,8 @@ export async function POST(req: NextRequest) {
     }
     const msg = err instanceof Error ? err.message : String(err)
     console.error('Assistant error:', msg)
-    if (msg.includes('429') || msg.includes('quota') || msg.includes('Too Many')) {
-      return NextResponse.json({ message: "I'm getting too many requests right now. Please wait a moment and try again." })
+    if (msg.includes('429') || msg.includes('quota') || msg.includes('Too Many') || msg.includes('limit: 0')) {
+      return NextResponse.json({ message: "⚠️ Free quota exhausted. Please enable billing at aistudio.google.com → your project → Set up billing (you won't be charged for normal use)." })
     }
     return NextResponse.json({ message: 'Sorry, I had trouble thinking that through. Please try again.' })
   }
