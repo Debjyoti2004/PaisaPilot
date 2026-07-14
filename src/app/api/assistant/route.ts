@@ -125,7 +125,7 @@ export async function POST(req: NextRequest) {
 
     const genAI = new GoogleGenerativeAI(apiKey)
     const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash',
+      model: 'gemini-2.0-flash',
       systemInstruction: context,
     })
 
@@ -150,7 +150,8 @@ export async function POST(req: NextRequest) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('Assistant error:', err)
-    return NextResponse.json({ message: 'Sorry, I had trouble thinking that through. Please try again.' })
+    const msg = err instanceof Error ? err.message : String(err)
+    console.error('Assistant error:', msg)
+    return NextResponse.json({ message: `AI error: ${msg.slice(0, 200)}` })
   }
 }
