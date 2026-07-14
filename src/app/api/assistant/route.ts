@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import OpenAI from 'openai'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
 
@@ -35,8 +35,8 @@ async function buildFinancialContext(userId: string): Promise<string> {
   const totalCredits = transactions.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0)
 
   let ctx = `You are PaisaPilot, a smart personal finance assistant for an Indian user named Debjyoti.
-You have full access to their real financial data below. Answer conversationally and helpfully.
-Use ₹ symbol for amounts. Be concise but specific. Give actionable advice.
+You have access to their real financial data below. Answer in a friendly, conversational way.
+Use ₹ symbol for amounts. Be concise but give specific numbers and actionable advice.
 
 TODAY: ${now.toLocaleDateString('en-IN', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
 DAYS LEFT IN MONTH: ${daysLeft}
@@ -64,11 +64,11 @@ BUDGET ENVELOPES:
   }
 
   ctx += `
-MONTHLY SPENDING SUMMARY:
+MONTHLY SUMMARY:
 - Total spent: ${fmt(totalDebits)}
 - Total income: ${fmt(totalCredits)}
 - Net: ${fmt(totalCredits - totalDebits)}
-- Transactions count: ${transactions.length}
+- Transactions: ${transactions.length}
 `
 
   if (transactions.length > 0) {
@@ -83,7 +83,7 @@ MONTHLY SPENDING SUMMARY:
 
     ctx += `\nRECENT TRANSACTIONS (last 15):\n`
     for (const t of transactions.slice(0, 15)) {
-      ctx += `  • ${t.occurredAt.toLocaleDateString('en-IN')} | ${t.type === 'credit' ? '+' : '-'}${fmt(t.amount)} | ${t.narration} [${t.category?.name ?? 'Uncategorized'}]\n`
+      ctx += `  • ${t.occurredAt.toLocaleDateString('en-IN')} | ${t.type === 'credit' ? '+' : '-'}${fmt(t.amount)} | ${t.narration} [${t.category?.name ?? 'Other'}]\n`
     }
   }
 
@@ -116,35 +116,47 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ message: 'Please ask me something!' })
     }
 
-    const apiKey = process.env.GEMINI_API_KEY
-    if (!apiKey) {
-      return NextResponse.json({ message: 'AI is not configured yet. Please add GEMINI_API_KEY to env.' })
+    const endpoint = process.env.AZURE_OPENAI_ENDPOINT
+    const apiKey = process.env.AZURE_OPENAI_KEY
+    const deployment = process.env.AZURE_OPENAI_DEPLOYMENT ?? 'gpt-5-mini'
+
+    if (!endpoint || !apiKey) {
+      return NextResponse.json({ message: 'AI is not configured. Please add AZURE_OPENAI_ENDPOINT and AZURE_OPENAI_KEY to env.' })
     }
 
-    const [context] = await Promise.all([buildFinancialContext(userId)])
+    const context = await buildFinancialContext(userId)
 
-    const genAI = new GoogleGenerativeAI(apiKey)
-    const model = genAI.getGenerativeModel({
-      model: 'gemini-1.5-flash-latest',
-      systemInstruction: context,
+    const client = new OpenAI({
+      baseURL: `${endpoint}/openai/deployments/${deployment}`,
+      apiKey,
+      defaultQuery: { 'api-version': '2025-01-01-preview' },
+      defaultHeaders: { 'api-key': apiKey },
     })
 
-    // Build chat history from request (up to last 10 turns)
+    // Build message history (last 10 turns)
     const rawHistory = Array.isArray(body.history) ? body.history : []
-    const history = rawHistory
+    const historyMessages: OpenAI.Chat.ChatCompletionMessageParam[] = rawHistory
       .filter((h): h is { role: string; content: string } =>
         typeof h === 'object' && h !== null && 'role' in h && 'content' in h
       )
       .slice(-10)
       .map(h => ({
-        role: h.role === 'user' ? 'user' : 'model',
-        parts: [{ text: h.content }],
+        role: (h.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
+        content: h.content,
       }))
 
-    const chat = model.startChat({ history })
-    const result = await chat.sendMessage(message)
-    const text = result.response.text()
+    const response = await client.chat.completions.create({
+      model: deployment,
+      messages: [
+        { role: 'system', content: context },
+        ...historyMessages,
+        { role: 'user', content: message },
+      ],
+      max_tokens: 600,
+      temperature: 0.7,
+    })
 
+    const text = response.choices[0]?.message?.content ?? 'No response from AI.'
     return NextResponse.json({ message: text })
   } catch (err) {
     if (err instanceof Error && err.message === 'UNAUTHORIZED') {
