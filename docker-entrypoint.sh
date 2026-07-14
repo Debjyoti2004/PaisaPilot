@@ -1,9 +1,10 @@
 #!/bin/sh
-# No set -e — we handle errors explicitly so a migration hiccup doesn't kill the container
+# No set -e — migration failure must not kill the container
 
 echo "[paisapilot] Syncing database schema..."
-./node_modules/.bin/prisma db push --accept-data-loss --skip-generate 2>&1 \
-  && echo "[paisapilot] Schema synced" \
+# Call prisma via node directly so __dirname resolves WASM files correctly
+node ./node_modules/prisma/build/index.js db push --accept-data-loss --skip-generate 2>&1 \
+  && echo "[paisapilot] Schema synced OK" \
   || echo "[paisapilot] WARNING: schema sync failed — app will still start"
 
 echo "[paisapilot] Starting app..."
