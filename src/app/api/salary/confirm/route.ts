@@ -1,14 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/auth'
 import { runSplitEngine, SplitRuleInput, AdjustRuleInput } from '@/lib/split-engine'
 
 export async function POST(request: NextRequest) {
   try {
+    const userId = await requireUserId()
     const body = await request.json()
-    // Support both old-style { amount } and new-style { sources: [{label, amount}] }
     const { amount, sources } = body
 
-    // Calculate total income
     let totalAmount: number
     let incomeItems: Array<{ label: string; amount: number }> = []
 
@@ -30,13 +30,13 @@ export async function POST(request: NextRequest) {
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
 
     const config = await prisma.splitConfig.findFirst({
-      where: { active: true },
+      where: { userId, active: true },
       include: { rules: { include: { category: true } }, adjustRule: true },
     })
 
     if (!config) return NextResponse.json({ error: 'No active split config found' }, { status: 404 })
 
-    const settings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } })
+    const settings = await prisma.appSettings.findUnique({ where: { userId } })
     const expectedSalary = settings?.expectedSalary ?? 37000
 
     const rules: SplitRuleInput[] = config.rules.map(rule => ({
@@ -56,8 +56,9 @@ export async function POST(request: NextRequest) {
 
     const splitResult = runSplitEngine(totalAmount, rules, expectedSalary, adjustRule)
 
-    // Upsert budget period
-    let period = await prisma.budgetPeriod.findFirst({ where: { month: monthStart, configId: config.id } })
+    let period = await prisma.budgetPeriod.findFirst({
+      where: { userId, month: monthStart, configId: config.id },
+    })
 
     if (period) {
       period = await prisma.budgetPeriod.update({
@@ -67,7 +68,7 @@ export async function POST(request: NextRequest) {
       await prisma.envelope.deleteMany({ where: { periodId: period.id } })
     } else {
       period = await prisma.budgetPeriod.create({
-        data: { configId: config.id, month: monthStart, incomeTotal: totalAmount, expectedIncome: expectedSalary, status: 'active' },
+        data: { userId, configId: config.id, month: monthStart, incomeTotal: totalAmount, expectedIncome: expectedSalary, status: 'active' },
       })
     }
 
@@ -77,12 +78,12 @@ export async function POST(request: NextRequest) {
       })),
     })
 
-    // Record each income source as a credit transaction
     const incomeCategory = await prisma.category.findFirst({ where: { kind: 'income' } })
     if (incomeCategory) {
       for (const src of incomeItems) {
         await prisma.transaction.create({
           data: {
+            userId,
             categoryId: incomeCategory.id, amount: src.amount, type: 'credit',
             narration: src.label, source: 'manual', occurredAt: now,
           },
@@ -92,6 +93,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, period: { id: period.id, month: period.month }, splitResult, totalAmount })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Salary confirm error:', error)
     return NextResponse.json({ error: 'Failed to confirm salary' }, { status: 500 })
   }

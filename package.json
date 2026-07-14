@@ -13,6 +13,7 @@
     "setup": "docker-compose up -d && sleep 3 && npx prisma db push && npm run db:seed"
   },
   "dependencies": {
+    "@auth/prisma-adapter": "^2.11.2",
     "@prisma/client": "^5.16.1",
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
@@ -24,6 +25,7 @@
     "jspdf": "^4.2.1",
     "lucide-react": "^0.408.0",
     "next": "14.2.5",
+    "next-auth": "^4.24.14",
     "nodemailer": "^9.0.3",
     "react": "^18",
     "react-dom": "^18",

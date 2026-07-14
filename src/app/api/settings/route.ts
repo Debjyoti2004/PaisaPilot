@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET() {
   try {
-    const settings = await prisma.appSettings.findUnique({ where: { id: 'singleton' } })
+    const userId = await requireUserId()
+    const settings = await prisma.appSettings.findUnique({ where: { userId } })
     return NextResponse.json({ settings })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error(error)
     return NextResponse.json({ error: 'Failed' }, { status: 500 })
   }
@@ -15,6 +20,7 @@ export async function GET() {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const userId = await requireUserId()
     const body = await request.json()
     const { expectedSalary, savingsFloor, emailReports, reportEmail } = body
     const updates: Record<string, unknown> = {}
@@ -24,12 +30,15 @@ export async function PATCH(request: NextRequest) {
     if (reportEmail !== undefined) updates.reportEmail = reportEmail
 
     const settings = await prisma.appSettings.upsert({
-      where: { id: 'singleton' },
+      where: { userId },
       update: updates,
-      create: { id: 'singleton', expectedSalary: 37000, savingsFloor: 3000, currency: 'INR', salaryKeywords: 'salary,credit,sal', emailReports: false, reportEmail: '', ...updates },
+      create: { userId, expectedSalary: 37000, savingsFloor: 3000, currency: 'INR', salaryKeywords: 'salary,credit,sal', emailReports: false, reportEmail: '', ...updates },
     })
     return NextResponse.json({ settings })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error(error)
     return NextResponse.json({ error: 'Failed' }, { status: 500 })
   }

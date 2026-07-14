@@ -2,16 +2,14 @@ export const dynamic = 'force-dynamic'
 
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/auth'
 
 export async function GET() {
   try {
+    const userId = await requireUserId()
     const buckets = await prisma.savingsBucket.findMany({
-      include: {
-        entries: {
-          orderBy: { month: 'desc' },
-          take: 12,
-        },
-      },
+      where: { userId },
+      include: { entries: { orderBy: { month: 'desc' }, take: 12 } },
       orderBy: { createdAt: 'asc' },
     })
 
@@ -24,6 +22,9 @@ export async function GET() {
 
     return NextResponse.json({ buckets, summary })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Savings GET error:', error)
     return NextResponse.json({ error: 'Failed to fetch savings' }, { status: 500 })
   }
@@ -31,15 +32,15 @@ export async function GET() {
 
 export async function POST(request: NextRequest) {
   try {
+    const userId = await requireUserId()
     const body = await request.json()
     const { bucketId, amount, note, action } = body
 
-    // Create a new bucket
     if (action === 'create_bucket') {
       const { name, liquidity, icon, color } = body
       if (!name || !liquidity) return NextResponse.json({ error: 'name and liquidity required' }, { status: 400 })
       const bucket = await prisma.savingsBucket.create({
-        data: { name, liquidity, icon: icon || '💰', color: color || '#6366f1', balance: 0 },
+        data: { userId, name, liquidity, icon: icon || '💰', color: color || '#6366f1', balance: 0 },
       })
       return NextResponse.json({ bucket }, { status: 201 })
     }
@@ -50,6 +51,11 @@ export async function POST(request: NextRequest) {
 
     const parsedAmount = parseFloat(amount)
     if (isNaN(parsedAmount)) return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
+
+    const existing = await prisma.savingsBucket.findUnique({ where: { id: bucketId } })
+    if (!existing || existing.userId !== userId) {
+      return NextResponse.json({ error: 'Bucket not found' }, { status: 404 })
+    }
 
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
@@ -65,6 +71,9 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ bucket, entry }, { status: 201 })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Savings POST error:', error)
     return NextResponse.json({ error: 'Failed to update savings' }, { status: 500 })
   }
@@ -72,14 +81,15 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   try {
+    const userId = await requireUserId()
     const { searchParams } = new URL(request.url)
     const entryId = searchParams.get('entryId')
     const bucketId = searchParams.get('bucketId')
 
     if (entryId) {
-      // Delete a single entry and reverse its amount from the bucket balance
-      const entry = await prisma.bucketEntry.findUnique({ where: { id: entryId } })
+      const entry = await prisma.bucketEntry.findUnique({ where: { id: entryId }, include: { bucket: true } })
       if (!entry) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
+      if (entry.bucket.userId !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
       await prisma.bucketEntry.delete({ where: { id: entryId } })
       await prisma.savingsBucket.update({
@@ -90,13 +100,19 @@ export async function DELETE(request: NextRequest) {
     }
 
     if (bucketId) {
-      // Delete entire bucket (entries cascade)
+      const bucket = await prisma.savingsBucket.findUnique({ where: { id: bucketId } })
+      if (!bucket) return NextResponse.json({ error: 'Bucket not found' }, { status: 404 })
+      if (bucket.userId !== userId) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
       await prisma.savingsBucket.delete({ where: { id: bucketId } })
       return NextResponse.json({ ok: true })
     }
 
     return NextResponse.json({ error: 'entryId or bucketId required' }, { status: 400 })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Savings DELETE error:', error)
     return NextResponse.json({ error: 'Failed to delete' }, { status: 500 })
   }
@@ -104,9 +120,15 @@ export async function DELETE(request: NextRequest) {
 
 export async function PATCH(request: NextRequest) {
   try {
+    const userId = await requireUserId()
     const body = await request.json()
     const { bucketId, name, icon, color, liquidity } = body
     if (!bucketId) return NextResponse.json({ error: 'bucketId required' }, { status: 400 })
+
+    const existing = await prisma.savingsBucket.findUnique({ where: { id: bucketId } })
+    if (!existing || existing.userId !== userId) {
+      return NextResponse.json({ error: 'Bucket not found' }, { status: 404 })
+    }
 
     const bucket = await prisma.savingsBucket.update({
       where: { id: bucketId },
@@ -114,6 +136,9 @@ export async function PATCH(request: NextRequest) {
     })
     return NextResponse.json({ bucket })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Savings PATCH error:', error)
     return NextResponse.json({ error: 'Failed to update bucket' }, { status: 500 })
   }

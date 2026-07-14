@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -18,6 +19,7 @@ const PAGES = [
 
 export async function GET(request: NextRequest) {
   try {
+    const userId = await requireUserId()
     const { searchParams } = new URL(request.url)
     const q = searchParams.get('q')?.trim().toLowerCase()
 
@@ -27,7 +29,7 @@ export async function GET(request: NextRequest) {
 
     const [transactions, categories] = await Promise.all([
       prisma.transaction.findMany({
-        where: { narration: { contains: q, mode: 'insensitive' } },
+        where: { userId, narration: { contains: q, mode: 'insensitive' } },
         include: { category: true },
         orderBy: { occurredAt: 'desc' },
         take: 8,
@@ -44,6 +46,9 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ results: { pages, transactions, categories } })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Search error:', error)
     return NextResponse.json({ error: 'Search failed' }, { status: 500 })
   }

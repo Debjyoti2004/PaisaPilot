@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
 export async function GET(request: NextRequest) {
   try {
+    const userId = await requireUserId()
     const { searchParams } = new URL(request.url)
-    const monthParam = searchParams.get('month') // e.g. "2026-07"
+    const monthParam = searchParams.get('month')
 
     let monthStart: Date
     if (monthParam) {
@@ -18,15 +20,12 @@ export async function GET(request: NextRequest) {
     }
 
     const period = await prisma.budgetPeriod.findFirst({
-      where: { month: monthStart, status: 'active' },
+      where: { userId, month: monthStart, status: 'active' },
       include: {
         envelopes: {
           include: {
             category: true,
-            transactions: {
-              orderBy: { occurredAt: 'desc' },
-              take: 10,
-            },
+            transactions: { orderBy: { occurredAt: 'desc' }, take: 10 },
           },
         },
       },
@@ -49,14 +48,12 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       envelopes,
-      period: {
-        id: period.id,
-        month: period.month,
-        incomeTotal: period.incomeTotal,
-        expectedIncome: period.expectedIncome,
-      },
+      period: { id: period.id, month: period.month, incomeTotal: period.incomeTotal, expectedIncome: period.expectedIncome },
     })
   } catch (error) {
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Envelopes GET error:', error)
     return NextResponse.json({ error: 'Failed to fetch envelopes' }, { status: 500 })
   }

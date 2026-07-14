@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { requireUserId } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,6 +28,7 @@ function detectIntent(msg: string): string {
 
 export async function POST(req: NextRequest) {
   try {
+    const userId = await requireUserId()
     const body = await req.json() as { message?: unknown }
     const message = typeof body.message === 'string' ? body.message : ''
     const intent = detectIntent(message)
@@ -36,7 +38,7 @@ export async function POST(req: NextRequest) {
 
     if (intent === 'spending') {
       const transactions = await prisma.transaction.findMany({
-        where: { type: 'EXPENSE', occurredAt: { gte: start, lte: end } },
+        where: { userId, type: 'debit', occurredAt: { gte: start, lte: end } },
         include: { category: true },
       })
       const total = transactions.reduce((s, t) => s + t.amount, 0)
@@ -57,7 +59,7 @@ export async function POST(req: NextRequest) {
 
     if (intent === 'safe_to_spend') {
       const period = await prisma.budgetPeriod.findFirst({
-        where: { month: { gte: start, lte: end } },
+        where: { userId, month: { gte: start, lte: end } },
         include: { envelopes: true },
       })
       if (!period) {
@@ -75,7 +77,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (intent === 'savings') {
-      const buckets = await prisma.savingsBucket.findMany({ orderBy: { balance: 'desc' } })
+      const buckets = await prisma.savingsBucket.findMany({ where: { userId }, orderBy: { balance: 'desc' } })
       const total = buckets.reduce((s, b) => s + b.balance, 0)
       if (buckets.length === 0) {
         return NextResponse.json({ message: "You don't have any savings buckets yet. Go to the Savings page to create one!" })
@@ -89,7 +91,7 @@ export async function POST(req: NextRequest) {
 
     if (intent === 'income') {
       const income = await prisma.transaction.aggregate({
-        where: { type: 'INCOME', occurredAt: { gte: start, lte: end } },
+        where: { userId, type: 'credit', occurredAt: { gte: start, lte: end } },
         _sum: { amount: true },
         _count: true,
       })
@@ -100,7 +102,7 @@ export async function POST(req: NextRequest) {
     }
 
     if (intent === 'goals') {
-      const goals = await prisma.goal.findMany({ orderBy: { createdAt: 'asc' } })
+      const goals = await prisma.goal.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } })
       if (goals.length === 0) {
         return NextResponse.json({ message: "You haven't set any goals yet. Head to the Goals page to create your first one!" })
       }
@@ -114,7 +116,7 @@ export async function POST(req: NextRequest) {
 
     if (intent === 'top_categories') {
       const transactions = await prisma.transaction.findMany({
-        where: { type: 'EXPENSE', occurredAt: { gte: start, lte: end } },
+        where: { userId, type: 'debit', occurredAt: { gte: start, lte: end } },
         include: { category: true },
       })
       const byCategory: Record<string, { amount: number; count: number; emoji: string }> = {}
@@ -138,7 +140,7 @@ export async function POST(req: NextRequest) {
 
     if (intent === 'budget_track') {
       const period = await prisma.budgetPeriod.findFirst({
-        where: { month: { gte: start, lte: end } },
+        where: { userId, month: { gte: start, lte: end } },
         include: { envelopes: true },
       })
       if (!period) {
@@ -173,10 +175,10 @@ export async function POST(req: NextRequest) {
 
     // Default: summary
     const [incomeAgg, expenseAgg, savingsCount, goalsCount] = await Promise.all([
-      prisma.transaction.aggregate({ where: { type: 'INCOME', occurredAt: { gte: start, lte: end } }, _sum: { amount: true } }),
-      prisma.transaction.aggregate({ where: { type: 'EXPENSE', occurredAt: { gte: start, lte: end } }, _sum: { amount: true } }),
-      prisma.savingsBucket.count(),
-      prisma.goal.count(),
+      prisma.transaction.aggregate({ where: { userId, type: 'credit', occurredAt: { gte: start, lte: end } }, _sum: { amount: true } }),
+      prisma.transaction.aggregate({ where: { userId, type: 'debit', occurredAt: { gte: start, lte: end } }, _sum: { amount: true } }),
+      prisma.savingsBucket.count({ where: { userId } }),
+      prisma.goal.count({ where: { userId } }),
     ])
 
     const income = incomeAgg._sum.amount ?? 0
@@ -186,6 +188,9 @@ export async function POST(req: NextRequest) {
     const response = `Here's your **${monthLabel} Summary**:\n\n💰 Income: ${formatINR(income)}\n💸 Expenses: ${formatINR(expense)}\n📊 Net: ${formatINR(net)}\n💾 Savings buckets: ${savingsCount}\n🎯 Active goals: ${goalsCount}\n\nAsk me anything specific about your finances!`
     return NextResponse.json({ message: response })
   } catch (err) {
+    if (err instanceof Error && err.message === 'UNAUTHORIZED') {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
     console.error('Assistant error:', err)
     return NextResponse.json({ message: 'Sorry, I encountered an error. Please try again.' }, { status: 500 })
   }
