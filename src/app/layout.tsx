@@ -6,6 +6,11 @@ import { MobileNav } from '@/components/layout/MobileNav'
 export const metadata: Metadata = {
   title: 'PaisaPilot — Personal Finance',
   description: 'Personal finance tracker for India. Track expenses, manage budgets, grow savings.',
+  icons: {
+    icon: '/favicon.svg',
+    shortcut: '/favicon.svg',
+    apple: '/favicon.svg',
+  },
 }
 
 export const viewport: Viewport = {

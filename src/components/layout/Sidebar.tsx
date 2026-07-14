@@ -5,8 +5,9 @@ import { usePathname } from 'next/navigation'
 import {
   LayoutDashboard, ArrowLeftRight, Wallet, PiggyBank,
   Target, TrendingUp, Scissors, Calculator, Bot,
-  User, IndianRupee, ChevronRight, Tag
+  User, ChevronRight, Tag
 } from 'lucide-react'
+import { LogoFull } from '@/components/ui/Logo'
 
 const NAV = [
   {
@@ -48,14 +49,8 @@ export function Sidebar() {
   return (
     <aside className="sidebar-desktop fixed left-0 top-0 h-full w-[240px] bg-[#0f0f1a] border-r border-white/[0.07] flex flex-col z-40 select-none">
       {/* Logo */}
-      <div className="flex items-center gap-3 px-5 py-5 border-b border-white/[0.07]">
-        <div className="w-8 h-8 rounded-xl bg-indigo-600 flex items-center justify-center flex-shrink-0">
-          <IndianRupee size={16} className="text-white" strokeWidth={2.5} />
-        </div>
-        <div>
-          <p className="text-[13px] font-bold text-white leading-none tracking-tight">PaisaPilot</p>
-          <p className="text-[10px] text-slate-500 mt-0.5 leading-none">Personal Finance</p>
-        </div>
+      <div className="px-4 py-4 border-b border-white/[0.07]">
+        <LogoFull iconSize={34} />
       </div>
 
       {/* Navigation */}

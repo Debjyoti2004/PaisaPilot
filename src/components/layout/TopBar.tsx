@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { Search, Bell, X, Command, Plus, Mic } from 'lucide-react'
+import { LogoIcon } from '@/components/ui/Logo'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatINR } from '@/lib/finance'
@@ -100,9 +101,12 @@ export function TopBar({ title, subtitle, onAdd, onVoice }: TopBarProps) {
   return (
     <>
       <header className="sticky top-0 z-30 h-[60px] flex items-center px-4 md:px-6 gap-4 bg-[rgba(13,13,20,0.92)] backdrop-blur-md border-b border-white/[0.07]">
-        <div className="flex-1 min-w-0">
-          <h1 className="text-[15px] font-semibold text-white leading-none truncate">{title}</h1>
-          {subtitle && <p className="text-[11px] text-slate-500 mt-0.5 leading-none">{subtitle}</p>}
+        <div className="flex items-center gap-2.5 flex-1 min-w-0">
+          <LogoIcon size={30} className="flex-shrink-0 md:hidden" />
+          <div className="min-w-0">
+            <h1 className="text-[15px] font-semibold text-white leading-none truncate">{title}</h1>
+            {subtitle && <p className="text-[11px] text-slate-500 mt-0.5 leading-none">{subtitle}</p>}
+          </div>
         </div>
         <div className="flex items-center gap-1.5 md:gap-2">
           {/* Mobile-only: voice + add buttons in topbar */}

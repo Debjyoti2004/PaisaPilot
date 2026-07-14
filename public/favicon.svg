@@ -1,0 +1,27 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="48" y2="48" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#6366f1"/>
+      <stop offset="1" stop-color="#7c3aed"/>
+    </linearGradient>
+    <linearGradient id="shine" x1="0" y1="0" x2="0" y2="1">
+      <stop stop-color="rgba(255,255,255,0.18)"/>
+      <stop offset="1" stop-color="rgba(255,255,255,0)"/>
+    </linearGradient>
+  </defs>
+  <!-- Card background -->
+  <rect width="48" height="48" rx="12" fill="url(#bg)"/>
+  <!-- Subtle top shine -->
+  <rect width="48" height="24" rx="12" fill="url(#shine)"/>
+  <!-- ₹ symbol — drawn as paths for crisp rendering at all sizes -->
+  <!-- Top bar -->
+  <line x1="13" y1="13" x2="35" y2="13" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <!-- Second bar -->
+  <line x1="13" y1="20" x2="30" y2="20" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <!-- Vertical stem -->
+  <line x1="15" y1="13" x2="15" y2="36" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <!-- Diagonal slash -->
+  <line x1="30" y1="20" x2="15" y2="36" stroke="white" stroke-width="3" stroke-linecap="round"/>
+  <!-- Pilot dot — subtle navigation indicator top-right -->
+  <circle cx="37" cy="11" r="2.5" fill="rgba(255,255,255,0.5)"/>
+</svg>
