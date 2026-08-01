@@ -5,8 +5,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json* yarn.lock* ./
 
-# Install dependencies
-RUN npm ci
+# Install dependencies (use legacy-peer-deps for next-auth/@auth/core version conflicts)
+RUN npm ci --legacy-peer-deps
 
 # Copy source
 COPY . .
@@ -22,8 +22,8 @@ WORKDIR /app
 # Copy package files
 COPY package.json package-lock.json* yarn.lock* ./
 
-# Install production dependencies only
-RUN npm ci --only=production
+# Install production dependencies only (use legacy-peer-deps for next-auth/@auth/core version conflicts)
+RUN npm ci --legacy-peer-deps --omit=dev
 
 # Copy built app from builder
 COPY --from=builder /app/.next ./.next
