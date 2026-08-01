@@ -5,6 +5,7 @@ import { X, Mic, MicOff, Check, ChevronLeft, IndianRupee, Pencil } from 'lucide-
 import { formatINR } from '@/lib/finance'
 
 const QUICK_AMOUNTS = [100, 500, 1000, 2000, 5000]
+const NUMPAD = ['1','2','3','4','5','6','7','8','9','.','0','⌫']
 
 const MERCHANT_HINTS: Record<string, string> = {
   zomato: 'Eating Out', swiggy: 'Eating Out', dunzo: 'Eating Out', blinkit: 'Groceries',
@@ -237,11 +238,11 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
             </div>
           )}
 
-          {/* STEP: AMOUNT */}
+          {/* STEP: AMOUNT — Premium numpad */}
           {step === 'amount' && (
-            <div className="pt-4 space-y-4">
+            <div className="pt-3">
               {/* Type toggle */}
-              <div className="flex gap-1.5 p-1 bg-white/[0.04] rounded-xl border border-white/[0.06]">
+              <div className="flex gap-1.5 p-1 bg-white/[0.04] rounded-xl border border-white/[0.06] mb-4">
                 <button
                   onClick={() => setTxType('debit')}
                   className={`flex-1 py-2 rounded-lg text-[13px] font-semibold transition-all ${txType === 'debit' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'text-slate-500 hover:text-slate-300'}`}
@@ -256,49 +257,72 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
                 </button>
               </div>
 
-              {/* Amount input */}
-              <div className="bg-white/[0.03] border border-white/[0.06] rounded-2xl p-5 text-center">
-                <p className="text-[11px] uppercase tracking-widest text-slate-600 mb-3">Amount</p>
+              {/* Amount display */}
+              <div className="text-center mb-4 py-3">
+                <p className="text-[11px] uppercase tracking-widest text-slate-600 mb-2">Amount</p>
                 <div className="flex items-center justify-center gap-2">
-                  <IndianRupee size={28} className={txType === 'debit' ? 'text-red-400' : 'text-green-400'} />
-                  <input
-                    ref={amountRef}
-                    type="number"
-                    value={amount}
-                    onChange={e => setAmount(e.target.value)}
-                    placeholder="0"
-                    min="0"
-                    step="1"
-                    className="bg-transparent text-[42px] font-black text-white placeholder:text-slate-700 focus:outline-none w-full text-center num"
-                    style={{ letterSpacing: '-0.04em' }}
-                  />
+                  <IndianRupee size={30} className={`${txType === 'debit' ? 'text-red-400' : 'text-green-400'} flex-shrink-0`} />
+                  <span
+                    className="text-[48px] font-black text-white num leading-none"
+                    style={{ letterSpacing: '-0.04em', minWidth: '2ch' }}
+                  >
+                    {amount || '0'}
+                  </span>
+                  <span className="w-0.5 h-10 bg-indigo-400 rounded-full animate-pulse" />
                 </div>
               </div>
 
               {/* Quick amounts */}
-              <div>
-                <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-2">Quick amounts</p>
-                <div className="flex gap-2 flex-wrap">
-                  {QUICK_AMOUNTS.map(a => (
-                    <button
-                      key={a}
-                      onClick={() => setAmount(String(a))}
-                      className={`px-3 py-1.5 rounded-lg text-[12px] font-medium border transition-all ${
-                        amount === String(a)
-                          ? 'bg-indigo-500/20 text-indigo-300 border-indigo-500/40'
-                          : 'bg-white/[0.04] text-slate-400 border-white/[0.07] hover:text-slate-200 hover:bg-white/[0.08]'
-                      }`}
-                    >
-                      ₹{a.toLocaleString('en-IN')}
-                    </button>
-                  ))}
-                </div>
+              <div className="flex gap-2 justify-center mb-4 flex-wrap">
+                {QUICK_AMOUNTS.map(a => (
+                  <button
+                    key={a}
+                    onClick={() => setAmount(String(a))}
+                    className={`px-3 py-1.5 rounded-full text-[12px] font-semibold border transition-all ${
+                      amount === String(a)
+                        ? 'bg-indigo-500 text-white border-indigo-500'
+                        : 'bg-white/[0.05] text-slate-300 border-white/[0.08] hover:bg-white/[0.1]'
+                    }`}
+                  >
+                    ₹{a.toLocaleString('en-IN')}
+                  </button>
+                ))}
+              </div>
+
+              {/* Numpad grid */}
+              <div className="grid grid-cols-3 gap-2 mb-4">
+                {NUMPAD.map(key => (
+                  <button
+                    key={key}
+                    onClick={() => {
+                      if (key === '⌫') {
+                        setAmount(prev => prev.slice(0, -1))
+                      } else if (key === '.') {
+                        if (!amount.includes('.')) setAmount(prev => (prev || '0') + '.')
+                      } else {
+                        if (amount === '0') setAmount(key)
+                        else if (amount.length < 8) setAmount(prev => prev + key)
+                      }
+                    }}
+                    className={`h-12 rounded-2xl text-[18px] font-semibold transition-all active:scale-95 ${
+                      key === '⌫'
+                        ? 'bg-white/[0.08] text-slate-300 hover:bg-white/[0.12]'
+                        : 'bg-white/[0.05] text-white hover:bg-white/[0.1]'
+                    }`}
+                  >
+                    {key}
+                  </button>
+                ))}
               </div>
 
               <button
                 onClick={() => { if (canProceed) setStep(txType === 'credit' ? 'details' : 'category') }}
                 disabled={!canProceed}
-                className="w-full py-3.5 rounded-xl font-semibold text-[14px] transition-all disabled:opacity-30 disabled:cursor-not-allowed bg-indigo-600 hover:bg-indigo-500 text-white"
+                className={`w-full py-3.5 rounded-2xl font-bold text-[15px] transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
+                  txType === 'debit'
+                    ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
+                    : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-500/20'
+                }`}
               >
                 Continue →
               </button>

@@ -1,249 +1,567 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { TopBar } from '@/components/layout/TopBar'
-import { QuickAddModal } from '@/components/transactions/QuickAddModal'
-import { VoiceQuickAdd } from '@/components/transactions/VoiceQuickAdd'
-import { Plus, Search, TrendingUp, TrendingDown, Minus, Trash2, X } from 'lucide-react'
-import { formatINR } from '@/lib/finance'
-import { clsx } from 'clsx'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { Search, ChevronDown, X, Plus, Trash2, Check, CalendarDays, AlertCircle, Pencil } from 'lucide-react'
+import { NEEDS_CATS, WANTS_CATS, INV_CATS, ALL_CATS, INCOME_CATS, GROUP_DEFAULT_CAT, catsForGroup } from '@/config/categories'
 
-interface Transaction {
-  id: string; narration: string; amount: number; type: string; occurredAt: string; note?: string | null
-  categoryId: string
-  category: { id: string; name: string; icon: string; color: string; kind: string }
+interface Tx {
+  id: string; merchant: string; date: string; category: string; account: string
+  amount: number; type: 'income' | 'expense'; tags: string[]; wealthGroup: string | null
 }
 
-function groupByDate(txns: Transaction[]) {
-  const groups: Record<string, Transaction[]> = {}
-  const today = new Date(); today.setHours(0,0,0,0)
-  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
-  txns.forEach(tx => {
-    const d = new Date(tx.occurredAt); d.setHours(0,0,0,0)
-    let label: string
-    if (d.getTime() === today.getTime()) label = 'Today'
-    else if (d.getTime() === yesterday.getTime()) label = 'Yesterday'
-    else label = d.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: d.getFullYear() !== today.getFullYear() ? 'numeric' : undefined })
-    if (!groups[label]) groups[label] = []
-    groups[label].push(tx)
-  })
-  return groups
+type Period = 'all-time' | 'this-month' | 'last-month' | 'last-3-months' | 'last-6-months' | 'this-year'
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'all-time',      label: 'All time'      },
+  { value: 'this-month',    label: 'This month'    },
+  { value: 'last-month',    label: 'Last month'    },
+  { value: 'last-3-months', label: 'Last 3 months' },
+  { value: 'last-6-months', label: 'Last 6 months' },
+  { value: 'this-year',     label: 'This year'     },
+]
+
+const CATEGORIES = [...ALL_CATS, ...INCOME_CATS, 'Needs review']
+
+const ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
+
+const GROUP_TABS = [
+  { value: '',            label: 'All',         color: 'var(--text-2)',  bg: 'var(--bg)' },
+  { value: 'needs',       label: '🏠 Needs',    color: '#6558D3',        bg: '#ede9fe' },
+  { value: 'wants',       label: '🛍️ Wants',    color: '#f97316',        bg: '#fff7ed' },
+  { value: 'investments', label: '📈 Invest',   color: '#10b981',        bg: '#f0fdf4' },
+  { value: 'income',      label: '💰 Income',   color: '#16a34a',        bg: '#f0fdf4' },
+]
+
+const GROUP_BTN_META: Record<string, { emoji: string; color: string; bg: string; label: string }> = {
+  needs:       { emoji: '🏠', color: '#6558D3', bg: '#ede9fe',  label: 'Needs' },
+  wants:       { emoji: '🛍️', color: '#f97316', bg: '#fff7ed',  label: 'Wants' },
+  investments: { emoji: '📈', color: '#10b981', bg: '#f0fdf4',  label: 'Investments' },
+  income:      { emoji: '💰', color: '#16a34a', bg: '#f0fdf4',  label: 'Income' },
 }
 
-export default function TransactionsPage() {
-  const [txns, setTxns] = useState<Transaction[]>([])
-  const [loading, setLoading] = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [editTx, setEditTx] = useState<Transaction | null>(null)
-  const [voiceTrigger, setVoiceTrigger] = useState(false)
-  const [search, setSearch] = useState('')
-  const [typeFilter, setTypeFilter] = useState<'all' | 'debit' | 'credit'>('all')
-  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
-  const [deleting, setDeleting] = useState<string | null>(null)
+function fmtFull(n: number) {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
+}
 
-  const now = new Date()
-  const monthParam = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`
-
-  const fetch_ = useCallback(async () => {
-    setLoading(true)
-    try {
-      const p = new URLSearchParams({ month: monthParam })
-      if (search) p.set('search', search)
-      const r = await fetch(`/api/transactions?${p}`)
-      const d = await r.json()
-      setTxns(d.transactions || [])
-    } catch {}
-    finally { setLoading(false) }
-  }, [monthParam, search])
-
-  useEffect(() => {
-    const t = setTimeout(fetch_, search ? 300 : 0)
-    return () => clearTimeout(t)
-  }, [fetch_, search])
-
-  const deleteTx = async (id: string) => {
-    setDeleting(id)
-    try {
-      await fetch(`/api/transactions/${id}`, { method: 'DELETE' })
-      setConfirmDelete(null)
-      fetch_()
-    } finally { setDeleting(null) }
-  }
-
-  const filtered = txns.filter(t => typeFilter === 'all' || t.type === typeFilter)
-  const groups = groupByDate(filtered)
-  const totalIn = txns.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0)
-  const totalOut = txns.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0)
-  const net = totalIn - totalOut
-
+function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+  const [open, setOpen] = useState(false)
+  const label = PERIODS.find(p => p.value === value)?.label ?? 'All time'
   return (
-    <>
-      <TopBar
-        title="Transactions"
-        subtitle={now.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
-        onAdd={() => { setEditTx(null); setModalOpen(true) }}
-        onVoice={() => setVoiceTrigger(true)}
-      />
-      <div className="flex-1 p-4 md:p-6 pb-36 md:pb-6 space-y-4 max-w-3xl mx-auto w-full">
-        {/* Stats */}
-        <div className="grid grid-cols-3 gap-3">
-          <div className="bg-[#13131f] border border-green-500/10 rounded-xl p-3">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <TrendingUp size={12} className="text-green-400" />
-              <p className="text-[10px] uppercase tracking-widest text-slate-600">Income</p>
-            </div>
-            <p className="text-[15px] font-bold text-green-400 num">{formatINR(totalIn)}</p>
-          </div>
-          <div className="bg-[#13131f] border border-red-500/10 rounded-xl p-3">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <TrendingDown size={12} className="text-red-400" />
-              <p className="text-[10px] uppercase tracking-widest text-slate-600">Spent</p>
-            </div>
-            <p className="text-[15px] font-bold text-red-400 num">{formatINR(totalOut)}</p>
-          </div>
-          <div className="bg-[#13131f] border border-white/[0.07] rounded-xl p-3">
-            <div className="flex items-center gap-1.5 mb-1.5">
-              <Minus size={12} className="text-slate-400" />
-              <p className="text-[10px] uppercase tracking-widest text-slate-600">Net</p>
-            </div>
-            <p className={clsx('text-[15px] font-bold num', net >= 0 ? 'text-green-400' : 'text-red-400')}>{net >= 0 ? '+' : ''}{formatINR(net)}</p>
-          </div>
-        </div>
-
-        {/* Search + filters */}
-        <div className="flex gap-2.5">
-          <div className="flex-1 relative">
-            <Search size={14} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-500" />
-            <input
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder="Search transactions..."
-              className="w-full pl-9 pr-3 py-2.5 bg-[#13131f] border border-white/[0.08] rounded-xl text-[13px] text-white placeholder:text-slate-600 focus:outline-none focus:border-indigo-500/50 transition-colors"
-            />
-          </div>
-          <div className="flex gap-1 p-1 bg-[#13131f] border border-white/[0.08] rounded-xl">
-            {(['all', 'debit', 'credit'] as const).map(t => (
-              <button
-                key={t}
-                onClick={() => setTypeFilter(t)}
-                className={clsx('px-3 py-1.5 rounded-lg text-[11px] font-semibold transition-all', typeFilter === t ? 'bg-indigo-500/20 text-indigo-300' : 'text-slate-500 hover:text-slate-300')}
-              >
-                {t === 'all' ? 'All' : t === 'debit' ? 'Expense' : 'Income'}
+    <div className="relative">
+      <button className="period-badge" onClick={() => setOpen(o => !o)}>
+        <CalendarDays size={14} style={{ color: 'var(--text-3)' }} />
+        <span>{label}</span>
+        <ChevronDown size={13} style={{ color: 'var(--text-3)' }} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-50 animate-slide-down" style={{ top: '100%', marginTop: 6, width: 180, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+            {PERIODS.map(p => (
+              <button key={p.value} onClick={() => { onChange(p.value); setOpen(false) }}
+                className="w-full text-left flex items-center gap-2 px-4 py-2.5 transition-colors"
+                style={{ fontSize: 13, fontWeight: p.value === value ? 700 : 400, color: p.value === value ? 'var(--violet)' : 'var(--text-1)', background: p.value === value ? 'var(--violet-bg)' : 'transparent', border: 'none', cursor: 'pointer' }}>
+                {p.value === value && <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--violet)' }} />}
+                {p.label}
               </button>
             ))}
           </div>
-          <button
-            onClick={() => setModalOpen(true)}
-            className="w-10 h-10 bg-indigo-600 hover:bg-indigo-500 rounded-xl flex items-center justify-center flex-shrink-0 transition-colors"
-          >
-            <Plus size={18} className="text-white" />
-          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function InlineCategory({ txId, current, wealthGroup, txType, onSave }: { txId: string; current: string; wealthGroup?: string | null; txType?: string; onSave: (cat: string) => void }) {
+  const [saving, setSaving] = useState(false)
+  const cats = txType === 'income' ? INCOME_CATS : catsForGroup(wealthGroup)
+  async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
+    const val = e.target.value; setSaving(true)
+    try {
+      await fetch('/api/transactions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: txId, category: val }) })
+      onSave(val)
+    } catch {}
+    setSaving(false)
+  }
+  return (
+    <select value={cats.includes(current) ? current : cats[0]} onChange={handleChange} disabled={saving} className="inline-select" style={{ opacity: saving ? 0.5 : 1 }}>
+      {cats.map(c => <option key={c}>{c}</option>)}
+    </select>
+  )
+}
+
+function TagPills({ txId, tags, onUpdate }: { txId: string; tags: string[]; onUpdate: (tags: string[]) => void }) {
+  const [modalOpen, setModalOpen] = useState(false)
+  async function removeTag(tag: string) {
+    const next = tags.filter(t => t !== tag)
+    try {
+      await fetch('/api/transactions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: txId, tags: next }) })
+      onUpdate(next)
+    } catch {}
+  }
+  return (
+    <div className="flex items-center gap-1 flex-wrap">
+      {tags.map(tag => (
+        <span key={tag} className="tag-pill" style={{ fontSize: 11 }}>
+          {tag}
+          <button onClick={() => removeTag(tag)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--violet)', display: 'flex', alignItems: 'center' }}><X size={10} /></button>
+        </span>
+      ))}
+      <button onClick={() => setModalOpen(true)}
+        className="flex items-center justify-center rounded-full"
+        style={{ width: 22, height: 22, background: 'var(--bg-3)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text-3)' }}>
+        <Plus size={11} />
+      </button>
+      {modalOpen && <AddTagModal txId={txId} currentTags={tags} onSave={updated => { onUpdate(updated); setModalOpen(false) }} onClose={() => setModalOpen(false)} />}
+    </div>
+  )
+}
+
+function AddTagModal({ txId, currentTags, onSave, onClose }: { txId: string; currentTags: string[]; onSave: (tags: string[]) => void; onClose: () => void }) {
+  const [allTags, setAllTags] = useState<string[]>([])
+  const [selected, setSelected] = useState<Set<string>>(new Set(currentTags))
+  const [newTag, setNewTag] = useState('')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    fetch('/api/tags').then(r => r.json()).then(d => setAllTags(d.tags?.map((t: { name: string }) => t.name) ?? []))
+    const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [onClose])
+  async function handleSave() {
+    setSaving(true)
+    try {
+      await fetch('/api/transactions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: txId, tags: Array.from(selected) }) })
+      onSave(Array.from(selected))
+    } catch {}
+    setSaving(false)
+  }
+  const toggle = (tag: string) => { setSelected(s => { const n = new Set(s); n.has(tag) ? n.delete(tag) : n.add(tag); return n }) }
+  return (
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 440 }}>
+        <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Add tags</h3>
+          <button className="btn-ghost" style={{ padding: 6 }} onClick={onClose}><X size={16} /></button>
         </div>
-
-        {/* Transaction list */}
-        {loading ? (
-          <div className="space-y-2">{[1,2,3,4,5].map(i => (
-            <div key={i} className="h-14 skeleton rounded-xl" />
-          ))}</div>
-        ) : filtered.length === 0 ? (
-          <div className="bg-[#13131f] border border-white/[0.07] rounded-2xl py-12 text-center">
-            <p className="text-slate-500 text-[13px]">{search ? `No results for "${search}"` : 'No transactions yet'}</p>
-            {!search && <button onClick={() => setModalOpen(true)} className="mt-2 text-indigo-400 text-[12px]">+ Add first transaction</button>}
+        <div className="px-5 py-4">
+          {allTags.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-4">
+              {allTags.map(tag => (
+                <button key={tag} onClick={() => toggle(tag)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl transition-all"
+                  style={{ fontSize: 13, fontWeight: 500, border: '1px solid', borderColor: selected.has(tag) ? 'var(--violet)' : 'var(--border)', background: selected.has(tag) ? 'var(--violet-bg)' : '#fff', color: selected.has(tag) ? 'var(--violet)' : 'var(--text-1)', cursor: 'pointer' }}>
+                  {selected.has(tag) && <Check size={12} />}{tag}
+                </button>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input type="text" placeholder="New tag name" value={newTag} onChange={e => setNewTag(e.target.value)} className="form-input flex-1"
+              onKeyDown={e => { if (e.key === 'Enter' && newTag.trim()) { setSelected(s => new Set(Array.from(s).concat(newTag.trim()))); setAllTags(p => p.includes(newTag.trim()) ? p : [...p, newTag.trim()]); setNewTag('') } }} />
+            <button className="btn-secondary" style={{ padding: '10px 14px' }} onClick={() => { if (newTag.trim()) { setSelected(s => new Set(Array.from(s).concat(newTag.trim()))); setAllTags(p => p.includes(newTag.trim()) ? p : [...p, newTag.trim()]); setNewTag('') } }} disabled={!newTag.trim()}>Add</button>
           </div>
-        ) : (
-          <div className="space-y-4">
-            {Object.entries(groups).map(([date, items]) => {
-              const dayTotal = items.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0)
-              return (
-                <div key={date}>
-                  <div className="flex items-center justify-between px-1 mb-2">
-                    <p className="text-[11px] font-semibold text-slate-500">{date}</p>
-                    <p className="text-[11px] text-slate-600 num">-{formatINR(dayTotal)}</p>
-                  </div>
-                  <div className="bg-[#13131f] border border-white/[0.07] rounded-2xl overflow-hidden divide-y divide-white/[0.04]">
-                    {items.map(tx => {
-                      const isCredit = tx.type === 'credit'
-                      const isConfirming = confirmDelete === tx.id
+        </div>
+        <div className="flex items-center justify-end gap-3 px-5 py-4" style={{ borderTop: '1px solid var(--border)' }}>
+          <button className="btn-secondary" onClick={onClose} disabled={saving}>Cancel</button>
+          <button className="btn-primary" onClick={handleSave} disabled={saving}>{saving ? 'Saving…' : 'Save tags'}</button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
-                      return (
-                        <div key={tx.id} className="group">
-                          {/* Confirm delete bar */}
-                          {isConfirming && (
-                            <div className="flex items-center gap-3 px-4 py-3 bg-red-500/[0.08] border-b border-red-500/20 animate-slide-up">
-                              <p className="flex-1 text-[12px] text-red-400 font-medium">Delete &quot;{tx.narration}&quot;?</p>
-                              <button
-                                onClick={() => deleteTx(tx.id)}
-                                disabled={deleting === tx.id}
-                                className="px-3 py-1.5 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-[11px] font-bold rounded-lg transition-colors disabled:opacity-50"
-                              >
-                                {deleting === tx.id ? '...' : 'Delete'}
-                              </button>
-                              <button
-                                onClick={() => setConfirmDelete(null)}
-                                className="w-6 h-6 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-slate-400 flex items-center justify-center transition-colors"
-                              >
-                                <X size={12} />
-                              </button>
-                            </div>
-                          )}
+function DeleteConfirm({ onConfirm, onCancel }: { onConfirm: () => void; onCancel: () => void }) {
+  return (
+    <div className="flex items-center gap-2 p-2 rounded-xl" style={{ background: 'var(--red-bg)', border: '1px solid rgba(220,38,38,0.2)' }}>
+      <span style={{ fontSize: 12, color: 'var(--red)' }}>Delete?</span>
+      <button onClick={onConfirm} className="btn-primary" style={{ padding: '4px 10px', fontSize: 12, minHeight: 28, background: 'var(--red)' }}>Yes</button>
+      <button onClick={onCancel} className="btn-ghost" style={{ padding: '4px 8px', fontSize: 12, minHeight: 28 }}>No</button>
+    </div>
+  )
+}
 
-                          <div className="flex items-center gap-3.5 px-4 py-3.5 hover:bg-white/[0.02] transition-colors">
-                            {/* Tap to edit */}
-                            <button
-                              onClick={() => { setEditTx(tx); setModalOpen(true) }}
-                              className="flex items-center gap-3.5 flex-1 min-w-0 text-left"
-                            >
-                              <div className="w-9 h-9 rounded-xl flex items-center justify-center text-[17px] flex-shrink-0" style={{ backgroundColor: `${tx.category.color}20` }}>
-                                {tx.category.icon}
-                              </div>
-                              <div className="flex-1 min-w-0">
-                                <p className="text-[13px] font-medium text-white truncate">{tx.narration}</p>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md" style={{ backgroundColor: `${tx.category.color}15`, color: tx.category.color }}>{tx.category.name}</span>
-                                  <span className="text-[10px] text-slate-600">{new Date(tx.occurredAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}</span>
-                                </div>
-                              </div>
-                              <div className="flex flex-col items-end flex-shrink-0">
-                                <span className={clsx('text-[14px] font-bold num', isCredit ? 'text-green-400' : 'text-white')}>
-                                  {isCredit ? '+' : '-'}{formatINR(tx.amount)}
-                                </span>
-                              </div>
-                            </button>
-                            {/* Delete button — visible on hover (desktop) / always visible (mobile) */}
-                            <button
-                              onClick={() => setConfirmDelete(isConfirming ? null : tx.id)}
-                              className={clsx(
-                                'w-7 h-7 rounded-lg flex items-center justify-center transition-all flex-shrink-0',
-                                isConfirming
-                                  ? 'bg-red-500/20 text-red-400'
-                                  : 'text-slate-700 hover:text-red-400 hover:bg-red-500/10 opacity-100 md:opacity-0 md:group-hover:opacity-100'
-                              )}
-                              title="Delete transaction"
-                            >
-                              <Trash2 size={13} />
-                            </button>
-                          </div>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )
-            })}
+// ── Inline Edit Row ─────────────────────────────────────────────
+interface EditState { merchant: string; amount: string; date: string; account: string; wealthGroup: string | null; category: string }
+
+function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: EditState) => void; onCancel: () => void }) {
+  const isIncome = tx.type === 'income'
+  const [fields, setFields] = useState<EditState>({
+    merchant: tx.merchant, amount: String(tx.amount), date: tx.date,
+    account: tx.account, wealthGroup: tx.wealthGroup, category: tx.category,
+  })
+  const [saving, setSaving] = useState(false)
+  const set = (k: keyof EditState, v: string | null) => setFields(f => ({ ...f, [k]: v ?? '' }))
+
+  function setGroup(g: string | null) {
+    setFields(f => ({
+      ...f,
+      wealthGroup: g,
+      category: g ? (GROUP_DEFAULT_CAT as Record<string, string>)[g] ?? f.category : f.category,
+    }))
+  }
+
+  async function save() {
+    setSaving(true)
+    try {
+      await fetch('/api/transactions', {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: tx.id, merchant: fields.merchant, amount: parseFloat(fields.amount),
+          date: fields.date, account: fields.account, wealthGroup: fields.wealthGroup,
+          category: fields.category,
+        }),
+      })
+      onSave(fields)
+    } catch {}
+    setSaving(false)
+  }
+
+  return (
+    <div style={{ padding: '12px 16px 16px', background: 'var(--violet-bg)', borderBottom: '1px solid var(--violet-border)' }}>
+      <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr', marginBottom: 12 }}>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Merchant</label>
+          <input className="form-input" style={{ height: 36, fontSize: 13 }} value={fields.merchant} onChange={e => set('merchant', e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Amount (₹)</label>
+          <input type="number" className="form-input" style={{ height: 36, fontSize: 13 }} value={fields.amount} onChange={e => set('amount', e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Date</label>
+          <input type="date" className="form-input" style={{ height: 36, fontSize: 13 }} value={fields.date} onChange={e => set('date', e.target.value)} />
+        </div>
+        <div>
+          <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Account</label>
+          <select className="form-select" style={{ height: 36, fontSize: 13 }} value={fields.account} onChange={e => set('account', e.target.value)}>
+            {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+          </select>
+        </div>
+        {!isIncome && (
+          <div>
+            <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Wealth group</label>
+            <div className="flex gap-1.5">
+              {(['needs','wants','investments'] as const).map(g => {
+                const m = GROUP_BTN_META[g]!
+                const active = fields.wealthGroup === g
+                return (
+                  <button key={g} className="has-tooltip" data-tip={m.label} onClick={() => setGroup(active ? null : g)} style={{
+                    display: 'flex', alignItems: 'center', gap: 4, padding: '5px 9px', borderRadius: 8, fontSize: 12,
+                    border: `1.5px solid ${active ? m.color : 'var(--border)'}`,
+                    background: active ? m.bg : '#ffffff', color: active ? m.color : 'var(--text-2)',
+                    cursor: 'pointer', fontWeight: active ? 700 : 500,
+                  }}>
+                    {m.emoji} {m.label}
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        )}
+        {/* Income category picker */}
+        {isIncome && (
+          <div style={{ gridColumn: 'span 3' }}>
+            <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>
+              Income category
+            </label>
+            <div className="relative" style={{ maxWidth: 220 }}>
+              <select className="form-select" style={{ height: 36, fontSize: 13 }}
+                value={INCOME_CATS.includes(fields.category) ? fields.category : INCOME_CATS[0]}
+                onChange={e => setFields(f => ({ ...f, category: e.target.value }))}>
+                {INCOME_CATS.map(c => <option key={c}>{c}</option>)}
+              </select>
+              <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
+          </div>
+        )}
+        {!isIncome && fields.wealthGroup && (
+          <div style={{ gridColumn: 'span 3' }}>
+            <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>
+              Subcategory <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>({fields.wealthGroup})</span>
+            </label>
+            <div className="relative" style={{ maxWidth: 220 }}>
+              <select className="form-select" style={{ height: 36, fontSize: 13 }}
+                value={catsForGroup(fields.wealthGroup).includes(fields.category) ? fields.category : catsForGroup(fields.wealthGroup)[0]}
+                onChange={e => setFields(f => ({ ...f, category: e.target.value }))}>
+                {catsForGroup(fields.wealthGroup).map(c => <option key={c}>{c}</option>)}
+              </select>
+              <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
           </div>
         )}
       </div>
+      <div className="flex justify-end gap-2">
+        <button className="btn-secondary" style={{ padding: '7px 14px', fontSize: 13 }} onClick={onCancel}>Cancel</button>
+        <button className="btn-primary" style={{ padding: '7px 14px', fontSize: 13 }} onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save changes'}</button>
+      </div>
+    </div>
+  )
+}
 
-      {/* Voice (desktop FAB + modal; mobile triggered from TopBar) */}
-      <VoiceQuickAdd onSuccess={fetch_} triggerStart={voiceTrigger} onTriggerConsumed={() => setVoiceTrigger(false)} />
+// ── Transactions Page ──────────────────────────────────────────
+export default function TransactionsPage() {
+  const [txns, setTxns] = useState<Tx[]>([])
+  const [total, setTotal] = useState(0)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [period, setPeriod] = useState<Period | null>(null)
+  const [search, setSearch] = useState('')
+  const [accountFilter, setAccountFilter] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [typeFilter, setTypeFilter] = useState('')
+  const [groupTab, setGroupTab] = useState('')
+  const [page, setPage] = useState(1)
+  const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-      {/* Desktop-only + FAB */}
-      <button onClick={() => { setEditTx(null); setModalOpen(true) }}
-        className="hidden md:flex fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 hover:bg-indigo-500 rounded-full items-center justify-center shadow-lg shadow-indigo-500/30 transition-all hover:scale-105 active:scale-95 z-40">
-        <Plus size={22} className="text-white" strokeWidth={2.5} />
-      </button>
+  const load = useCallback(async (p: Period, s: string, acc: string, cat: string, type: string, gt: string, pg: number) => {
+    setLoading(true); setError('')
+    try {
+      const params = new URLSearchParams({ period: p, page: String(pg) })
+      if (s)   params.set('search', s)
+      if (acc) params.set('account', acc)
+      if (cat) params.set('category', cat)
+      // groupTab overrides typeFilter
+      if (gt === 'income') params.set('type', 'income')
+      else if (gt)         params.set('wealthGroup', gt)
+      else if (type)       params.set('type', type)
+      const res = await fetch(`/api/transactions?${params}`)
+      if (!res.ok) throw new Error('Failed')
+      const d = await res.json()
+      setTxns(d.transactions ?? [])
+      setTotal(d.total ?? 0)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load')
+    } finally { setLoading(false) }
+  }, [])
 
-      <QuickAddModal isOpen={modalOpen} onClose={() => { setModalOpen(false); setEditTx(null) }} onSuccess={fetch_} transaction={editTx} />
-    </>
+  useEffect(() => {
+    fetch('/api/dashboard?period=all-time')
+      .then(r => r.json()).then(d => setPeriod((d.savedPeriod ?? 'all-time') as Period))
+      .catch(() => setPeriod('all-time'))
+  }, [])
+
+  useEffect(() => {
+    if (period === null) return
+    if (searchDebounce.current) clearTimeout(searchDebounce.current)
+    searchDebounce.current = setTimeout(() => load(period, search, accountFilter, categoryFilter, typeFilter, groupTab, page), 300)
+    return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current) }
+  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, load])
+
+  useEffect(() => {
+    const handler = () => load(period ?? 'all-time', search, accountFilter, categoryFilter, typeFilter, groupTab, 1)
+    window.addEventListener('paisapilot:refresh', handler)
+    return () => window.removeEventListener('paisapilot:refresh', handler)
+  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, load])
+
+  const handlePeriodChange = (p: Period) => {
+    setPeriod(p); setPage(1)
+    fetch(`/api/dashboard?period=${p}`).catch(() => {})
+  }
+
+  const updateTx = (id: string, updates: Partial<Tx>) => setTxns(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
+
+  async function deleteTx(id: string) {
+    try {
+      await fetch(`/api/transactions?id=${id}`, { method: 'DELETE' })
+      setTxns(prev => prev.filter(t => t.id !== id))
+      setTotal(n => n - 1)
+    } catch {}
+    setDeletingId(null)
+  }
+
+  const pageSize = 50
+  const totalPages = Math.ceil(total / pageSize)
+
+  return (
+    <div className="p-6 space-y-5">
+      <div>
+        <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)' }}>Every entry, one clear view.</h2>
+        <p style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 4 }}>Search, filter, categorize and tag your durable records.</p>
+      </div>
+
+      {/* Wealth group tabs — horizontal scroll on mobile */}
+      <div className="tab-scroll">
+        {GROUP_TABS.map(tab => {
+          const active = groupTab === tab.value
+          return (
+            <button key={tab.value} onClick={() => { setGroupTab(tab.value); setPage(1) }} style={{
+              padding: '7px 16px', borderRadius: 20, fontSize: 13, fontWeight: active ? 700 : 500,
+              border: `1.5px solid ${active ? tab.color : 'var(--border)'}`,
+              background: active ? tab.bg : '#ffffff',
+              color: active ? tab.color : 'var(--text-2)',
+              cursor: 'pointer', transition: 'all .15s', flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}>
+              {tab.label}
+            </button>
+          )
+        })}
+      </div>
+
+      {/* Filters */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+        <div className="relative">
+          <Search size={15} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
+          <input type="text" placeholder="Search merchant, category or tag" value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1) }} className="form-input" style={{ paddingLeft: 36, width: '100%' }} />
+        </div>
+        <div className="tab-scroll" style={{ gap: 8 }}>
+          <div className="relative" style={{ flexShrink: 0 }}>
+            <select value={accountFilter} onChange={e => { setAccountFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 140 }}>
+              <option value="">All accounts</option>
+              {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+            </select>
+            <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+          </div>
+          {!groupTab && (
+            <div className="relative" style={{ flexShrink: 0 }}>
+              <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 130 }}>
+                <option value="">All types</option>
+                <option value="income">Income only</option>
+                <option value="expense">Expenses only</option>
+              </select>
+              <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
+          )}
+          <div className="relative" style={{ flexShrink: 0 }}>
+            <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
+              <option value="">All categories</option>
+              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+            </select>
+            <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+          </div>
+          <div style={{ flexShrink: 0 }}>
+            <PeriodSelector value={period ?? 'all-time'} onChange={handlePeriodChange} />
+          </div>
+        </div>
+      </div>
+
+      {/* Table */}
+      <div className="card card-table">
+        {error && (
+          <div className="flex items-center gap-2 p-4" style={{ background: 'var(--red-bg)', borderBottom: '1px solid var(--orange-border)' }}>
+            <AlertCircle size={15} style={{ color: 'var(--red)' }} />
+            <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>
+          </div>
+        )}
+        <div style={{ overflowX: 'auto' }}>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ width: '28%' }}>DATE &amp; MERCHANT</th>
+                <th style={{ width: '16%' }}>CATEGORY</th>
+                <th style={{ width: '14%' }}>ACCOUNT</th>
+                <th style={{ width: '20%' }}>TAGS</th>
+                <th style={{ width: '14%', textAlign: 'right' }}>AMOUNT</th>
+                <th style={{ width: '8%' }}></th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading && Array.from({ length: 6 }).map((_, i) => (
+                <tr key={i}>{[1,2,3,4,5,6].map(j => <td key={j}><div className="skeleton" style={{ height: 16, borderRadius: 6, width: j === 6 ? 28 : '80%' }} /></td>)}</tr>
+              ))}
+              {!loading && txns.length === 0 && (
+                <tr><td colSpan={6}>
+                  <div className="empty-state">
+                    <div className="empty-state-icon">💳</div>
+                    <p style={{ fontSize: 14, color: 'var(--text-2)', fontWeight: 500 }}>No transactions yet</p>
+                    <p style={{ fontSize: 13, color: 'var(--text-3)' }}>Use the + Add entry button or import a statement.</p>
+                  </div>
+                </td></tr>
+              )}
+              {!loading && txns.map(tx => {
+                const wgMeta = tx.wealthGroup
+                  ? GROUP_BTN_META[tx.wealthGroup]
+                  : (tx.type === 'income' ? GROUP_BTN_META['income'] : null)
+                return (
+                  <>
+                    <tr key={tx.id} style={{ background: editingId === tx.id ? 'var(--violet-bg)' : undefined }}>
+                      <td>
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                            style={{ background: 'var(--bg-3)', fontSize: 12, fontWeight: 700, color: 'var(--text-2)' }}>
+                            {tx.merchant[0]?.toUpperCase()}
+                          </div>
+                          <div style={{ minWidth: 0 }}>
+                            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.merchant}</p>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'nowrap', overflow: 'hidden' }}>
+                              <p style={{ fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap', flexShrink: 0 }}>{tx.date}</p>
+                              {wgMeta && (
+                                <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: wgMeta.bg, color: wgMeta.color, border: `1px solid ${wgMeta.color}30`, whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                  {wgMeta.emoji} {wgMeta.label}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>
+                        <InlineCategory txId={tx.id} current={tx.category} wealthGroup={tx.wealthGroup} txType={tx.type} onSave={cat => updateTx(tx.id, { category: cat })} />
+                      </td>
+                      <td><span style={{ fontSize: 13, color: 'var(--text-2)' }}>{tx.account}</span></td>
+                      <td><TagPills txId={tx.id} tags={tx.tags} onUpdate={tags => updateTx(tx.id, { tags })} /></td>
+                      <td style={{ textAlign: 'right' }}>
+                        {deletingId === tx.id ? (
+                          <DeleteConfirm onConfirm={() => deleteTx(tx.id)} onCancel={() => setDeletingId(null)} />
+                        ) : (
+                          <span className="num" style={{ fontSize: 14, fontWeight: 700, color: tx.type === 'income' ? 'var(--green)' : 'var(--text-1)' }}>
+                            {tx.type === 'income' ? '+' : '–'}{fmtFull(tx.amount)}
+                          </span>
+                        )}
+                      </td>
+                      <td>
+                        <div className="flex items-center gap-1">
+                          <button className="btn-ghost" style={{ padding: 5 }} title="Edit"
+                            onClick={() => setEditingId(editingId === tx.id ? null : tx.id)}>
+                            <Pencil size={13} style={{ color: editingId === tx.id ? 'var(--violet)' : 'var(--text-3)' }} />
+                          </button>
+                          {deletingId !== tx.id && (
+                            <button className="btn-ghost" style={{ padding: 5 }} onClick={() => setDeletingId(tx.id)}>
+                              <Trash2 size={13} style={{ color: 'var(--text-3)' }} />
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                    {editingId === tx.id && (
+                      <tr key={`${tx.id}-edit`}>
+                        <td colSpan={6} style={{ padding: 0 }}>
+                          <InlineEditPanel
+                            tx={tx}
+                            onSave={fields => {
+                              updateTx(tx.id, {
+                                merchant: fields.merchant, amount: parseFloat(fields.amount),
+                                date: fields.date, account: fields.account,
+                                wealthGroup: fields.wealthGroup,
+                                category: fields.category,
+                              })
+                              setEditingId(null)
+                            }}
+                            onCancel={() => setEditingId(null)}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                  </>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-4 py-3" style={{ borderTop: '1px solid var(--border)' }}>
+            <p style={{ fontSize: 13, color: 'var(--text-3)' }}>
+              Showing {Math.min((page - 1) * pageSize + 1, total)}–{Math.min(page * pageSize, total)} of {total}
+            </p>
+            <div className="flex items-center gap-2">
+              <button className="btn-secondary" style={{ padding: '7px 14px', fontSize: 13 }} disabled={page === 1} onClick={() => setPage(p => p - 1)}>Prev</button>
+              <button className="btn-secondary" style={{ padding: '7px 14px', fontSize: 13 }} disabled={page === totalPages} onClick={() => setPage(p => p + 1)}>Next</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
   )
 }

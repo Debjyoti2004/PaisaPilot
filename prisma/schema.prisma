@@ -16,18 +16,25 @@ model User {
   email         String    @unique
   emailVerified DateTime?
   image         String?
+  password      String?
   accounts      Account[]
   sessions      Session[]
 
   // User's data
-  budgetPeriods  BudgetPeriod[]
-  transactions   Transaction[]
-  savingsBuckets SavingsBucket[]
-  goals          Goal[]
-  splitConfigs   SplitConfig[]
-  notifications  Notification[]
-  suggestions    Suggestion[]
-  settings       AppSettings?
+  budgetPeriods      BudgetPeriod[]
+  transactions       Transaction[]
+  savingsBuckets     SavingsBucket[]
+  goals              Goal[]
+  splitConfigs       SplitConfig[]
+  notifications      Notification[]
+  suggestions        Suggestion[]
+  settings           AppSettings?
+  wealthPlan         WealthPlan?
+  recurringPayments  RecurringPayment[]
+  dismissedPatterns  DismissedPattern[]
+  userBudgets        UserBudget[]
+  userTags           UserTag[]
+  categoryRules      CategoryRule[]
 
   createdAt DateTime @default(now())
 }
@@ -166,6 +173,13 @@ model Transaction {
   dedupeHash  String?   @unique
   occurredAt  DateTime  @default(now())
   createdAt   DateTime  @default(now())
+
+  // Ledgerly-style fields (new)
+  merchant       String?
+  account        String?   @default("Main Checking")
+  tags           String    @default("[]")
+  wealthGroup    String?
+  actualPaidDate DateTime? // actual payment date when occurredAt is shifted to month-1st
 }
 
 model SavingsBucket {
@@ -240,4 +254,111 @@ model AppSettings {
   salaryKeywords String  @default("salary,credit,sal")
   emailReports   Boolean @default(false)
   reportEmail    String  @default("")
+
+  // Net worth (Ledgerly)
+  assetsTotal        Float   @default(0)
+  liabilitiesTotal   Float   @default(0)
+  netWorthConfigured Boolean @default(false)
+  selectedPeriod     String  @default("all-time")
+
+  // Drive sync
+  driveFolder        String?
+  driveFolderId      String?
+  driveLastSync      DateTime?
+  driveResetAt       DateTime?
+  driveEnabled       Boolean @default(false)
+
+  // Salary carryover: treat income on day 25-31 of prev month as this month
+  salaryCarryover    Boolean @default(false)
+}
+
+// Wealth Plan (Warikoo model) — per user, stored in DB
+model WealthPlan {
+  id                    String   @id @default(uuid())
+  userId                String   @unique
+  user                  User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  startingSalary        Float    @default(25000)
+  startingAge           Int      @default(21)
+  incrementRate         Float    @default(0.10)
+  inflationRate         Float    @default(0.06)
+  extraMonthlyInvest    Float    @default(0)
+  bracket               Int      @default(1)
+  updatedAt             DateTime @updatedAt
+  overrides             WealthPlanOverride[]
+}
+
+// Per-month investment override (user adds extra on top of formula)
+model WealthPlanOverride {
+  id            String     @id @default(uuid())
+  planId        String
+  plan          WealthPlan @relation(fields: [planId], references: [id], onDelete: Cascade)
+  month         String     // YYYY-MM
+  instrument    String     // e.g. "stocks", "mutual_funds", "epf", "nps", "gold"
+  extraAmount   Float
+  note          String?
+  createdAt     DateTime   @default(now())
+
+  @@unique([planId, month, instrument])
+}
+
+// Recurring payments (confirmed)
+model RecurringPayment {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  category  String   @default("Other")
+  amount    Float
+  cadence   String   // weekly | biweekly | monthly | quarterly | annual
+  nextDate  String   // YYYY-MM-DD
+  account   String?
+  active    Boolean  @default(true)
+  isSubType Boolean  @default(false)
+  createdAt DateTime @default(now())
+}
+
+// Dismissed recurring pattern keys
+model DismissedPattern {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  patternKey String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, patternKey])
+}
+
+// User budget (Ledgerly-style, per category, monthly limit)
+model UserBudget {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  category   String
+  monthlyLimit Float
+  active     Boolean  @default(true)
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, category])
+}
+
+// Tags (global tag registry)
+model UserTag {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String
+  createdAt DateTime @default(now())
+
+  @@unique([userId, name])
+}
+
+// Categorization rules
+model CategoryRule {
+  id         String   @id @default(uuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  whenText   String
+  thenText   String
+  enabled    Boolean  @default(true)
+  createdAt  DateTime @default(now())
 }

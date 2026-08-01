@@ -71,3 +71,33 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to delete category' }, { status: 500 })
   }
 }
+
+// PUT /api/categories — seed income categories for existing users
+export async function PUT() {
+  try {
+    const INCOME_DEFS = [
+      { name: 'Salary',        icon: '💼', color: '#22c55e' },
+      { name: 'Freelancing',   icon: '💻', color: '#10b981' },
+      { name: 'Bonus',         icon: '🎁', color: '#16a34a' },
+      { name: 'Gift',          icon: '🎀', color: '#84cc16' },
+      { name: 'Part-time',     icon: '⏰', color: '#14b8a6' },
+      { name: 'Rental Income', icon: '🏠', color: '#0891b2' },
+      { name: 'Interest',      icon: '📊', color: '#6366f1' },
+      { name: 'Dividends',     icon: '📈', color: '#8b5cf6' },
+      { name: 'Other Income',  icon: '💰', color: '#6b7280' },
+    ]
+    const results: string[] = []
+    for (const d of INCOME_DEFS) {
+      await prisma.category.upsert({
+        where: { name: d.name },
+        update: {},
+        create: { name: d.name, kind: 'income', icon: d.icon, color: d.color },
+      })
+      results.push(d.name)
+    }
+    return NextResponse.json({ seeded: results })
+  } catch (error) {
+    console.error('Categories seed error:', error)
+    return NextResponse.json({ error: 'Seed failed' }, { status: 500 })
+  }
+}

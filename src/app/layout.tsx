@@ -5,7 +5,7 @@ import { AppShell } from '@/components/layout/AppShell'
 
 export const metadata: Metadata = {
   title: 'PaisaPilot — Personal Finance',
-  description: 'Personal finance tracker for India. Track expenses, manage budgets, grow savings.',
+  description: 'Personal finance tracker. Track expenses, manage budgets, grow savings.',
   icons: {
     icon: '/favicon.svg',
     shortcut: '/favicon.svg',
@@ -21,8 +21,8 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className="dark">
-      <body className="bg-[#0d0d14] text-slate-100 antialiased">
+    <html lang="en">
+      <body className="antialiased">
         <AuthSessionProvider>
           <AppShell>{children}</AppShell>
         </AuthSessionProvider>

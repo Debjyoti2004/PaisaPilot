@@ -1,72 +1,36 @@
-# ─────────────────────────────────────────────
-# Stage 1: deps
-# ─────────────────────────────────────────────
-FROM node:20-alpine AS deps
-RUN apk add --no-cache libc6-compat openssl
-WORKDIR /app
-
-COPY package.json package-lock.json* ./
-COPY prisma ./prisma/
-
-RUN npm ci --prefer-offline --legacy-peer-deps
-
-# ─────────────────────────────────────────────
-# Stage 2: builder
-# ─────────────────────────────────────────────
 FROM node:20-alpine AS builder
-RUN apk add --no-cache libc6-compat openssl
+
 WORKDIR /app
 
-COPY --from=deps /app/node_modules ./node_modules
+# Copy package files
+COPY package.json package-lock.json* yarn.lock* ./
+
+# Install dependencies
+RUN npm ci
+
+# Copy source
 COPY . .
 
-# Generate Prisma client
-RUN npx prisma generate
-
-# Build Next.js (standalone output)
-ENV NEXT_TELEMETRY_DISABLED=1 \
-    NODE_ENV=production \
-    DATABASE_URL=postgresql://placeholder:placeholder@placeholder:5432/placeholder \
-    DIRECT_URL=postgresql://placeholder:placeholder@placeholder:5432/placeholder
-
+# Build Next.js app
 RUN npm run build
 
-# ─────────────────────────────────────────────
-# Stage 3: runner (minimal image)
-# ─────────────────────────────────────────────
-FROM node:20-alpine AS runner
-RUN apk add --no-cache openssl curl
+# Production stage
+FROM node:20-alpine
+
 WORKDIR /app
 
-ENV NODE_ENV=production \
-    NEXT_TELEMETRY_DISABLED=1 \
-    PORT=3000 \
-    HOSTNAME=0.0.0.0
+# Copy package files
+COPY package.json package-lock.json* yarn.lock* ./
 
-RUN addgroup --system --gid 1001 nodejs && \
-    adduser  --system --uid 1001 nextjs
+# Install production dependencies only
+RUN npm ci --only=production
 
-# Copy standalone build
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
-# public/ may be empty — copy only if it exists
-COPY --from=builder /app/public* ./public/
+# Copy built app from builder
+COPY --from=builder /app/.next ./.next
+COPY --from=builder /app/public ./public
+COPY prisma ./prisma
 
-# Copy Prisma client + CLI so entrypoint can run db push
-COPY --from=builder /app/node_modules/.prisma    ./node_modules/.prisma
-COPY --from=builder /app/node_modules/@prisma    ./node_modules/@prisma
-COPY --from=builder /app/node_modules/prisma     ./node_modules/prisma
-COPY --from=builder /app/prisma ./prisma
+# Run migrations and start app
+CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
 
-# Entrypoint: run migrations then start app
-COPY docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
-
-USER nextjs
 EXPOSE 3000
-
-HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
-  CMD curl -fsS http://localhost:3000/api/health || exit 1
-
-ENTRYPOINT ["/docker-entrypoint.sh"]
-CMD ["node", "server.js"]

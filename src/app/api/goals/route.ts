@@ -22,10 +22,22 @@ export async function GET() {
     const userId = await requireUserId()
     const rawGoals = await prisma.goal.findMany({ where: { userId }, orderBy: { createdAt: 'asc' } })
 
+    const now = new Date()
     const goals = rawGoals.map((g) => {
-      const pct = g.targetAmount > 0 ? Math.min((g.savedAmount / g.targetAmount) * 100, 100) : 0
-      const status = computeStatus({ savedAmount: g.savedAmount, targetAmount: g.targetAmount, deadline: g.deadline, monthlyNeeded: g.monthlyNeeded })
-      return { ...g, progressPct: Math.round(pct), status }
+      const percentComplete = g.targetAmount > 0 ? Math.min((g.savedAmount / g.targetAmount) * 100, 100) : 0
+      const rawStatus = computeStatus({ savedAmount: g.savedAmount, targetAmount: g.targetAmount, deadline: g.deadline, monthlyNeeded: g.monthlyNeeded })
+      const status = rawStatus === 'ACHIEVED' ? 'achieved' : rawStatus === 'BEHIND' ? 'overdue' : 'on-track'
+
+      let monthsLeft: number | null = null
+      if (g.deadline) {
+        const diff = (g.deadline.getFullYear() - now.getFullYear()) * 12 + (g.deadline.getMonth() - now.getMonth())
+        monthsLeft = Math.max(0, diff)
+      }
+
+      const needed = g.targetAmount - g.savedAmount
+      const monthlyNeeded = monthsLeft && monthsLeft > 0 ? needed / monthsLeft : g.monthlyNeeded
+
+      return { ...g, percentComplete: Math.round(percentComplete), status, monthsLeft, monthlyNeeded }
     })
 
     return NextResponse.json({ goals })

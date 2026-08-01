@@ -30,7 +30,31 @@
       "Bash(ipconfig getifaddr *)",
       "Bash(git -C /Users/debjyotishit/Downloads/Development/PaisaPilot add Dockerfile)",
       "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(./node_modules/.bin/tsc --noEmit)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(git -C /Users/debjyoti/Documents/PaisaPilot log --oneline --all)",
+      "Bash(git -C /Users/debjyoti/Documents/PaisaPilot stash list)",
+      "Bash(DIRECT_URL=\"postgresql://redacted_user:REMOVED_CREDENTIAL@ep-rapid-dawn-ateugh8o.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" DATABASE_URL=\"postgresql://redacted_user:REMOVED_CREDENTIAL@ep-rapid-dawn-ateugh8o.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" npx prisma migrate status)",
+      "Bash(DIRECT_URL=\"postgresql://redacted_user:REMOVED_CREDENTIAL@ep-rapid-dawn-ateugh8o.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" DATABASE_URL=\"postgresql://redacted_user:REMOVED_CREDENTIAL@ep-rapid-dawn-ateugh8o.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" npx prisma *)",
+      "Bash(npx next *)",
+      "Bash(kill 75094 75095 97145 97158 97159)",
+      "Read(//tmp/**)",
+      "Bash(npx dotenv *)",
+      "Bash(DATABASE_URL=\"postgresql://redacted_user:REMOVED_CREDENTIAL@ep-rapid-dawn-ateugh8o.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" DIRECT_URL=\"postgresql://redacted_user:REMOVED_CREDENTIAL@ep-rapid-dawn-ateugh8o.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" npx prisma db push)",
+      "Bash(echo \"PID: $!\")",
+      "Bash(xargs kill -9)",
+      "Bash(Read /private/tmp/claude-501/-Users-debjyoti-Documents-PaisaPilot/c68c3a48-49a4-4e10-998b-6f0e499053b1/tasks/bbxd1hc1z.output)",
+      "Bash(pkill -f \"next\")",
+      "Bash(echo \"Started PID: $!\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('main:', d.get\\('main'\\)\\); print\\('module:', d.get\\('module'\\)\\); print\\('exports:', list\\(d.get\\('exports', {}\\).keys\\(\\)\\)[:5]\\)\")",
+      "Bash(next build *)",
+      "Bash(kill 15851)",
+      "Bash(DATABASE_URL=\"postgresql://redacted_user:REMOVED_CREDENTIAL@ep-rapid-dawn-ateugh8o.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require\" node *)",
+      "Bash(grep -E \"^xlsx$|^exceljs$|^sheetjs\")",
+      "Bash(grep \"^xlsx$\")",
+      "Bash(npx ts-node *)",
+      "Bash(chmod +x /Users/debjyoti/Documents/PaisaPilot/docker/postgres/backup.sh)"
     ]
   }
 }

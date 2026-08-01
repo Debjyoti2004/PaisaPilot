@@ -19,6 +19,7 @@
     "@types/bcryptjs": "^2.4.6",
     "@types/jsonwebtoken": "^9.0.10",
     "@types/nodemailer": "^8.0.1",
+    "@types/pdf-parse": "^1.1.5",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
@@ -29,10 +30,12 @@
     "next-auth": "^4.24.14",
     "nodemailer": "^9.0.3",
     "openai": "^6.46.0",
+    "pdf-parse": "^1.1.1",
     "react": "^18",
     "react-dom": "^18",
     "recharts": "^2.12.7",
-    "tailwind-merge": "^2.4.0"
+    "tailwind-merge": "^2.4.0",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "@types/node": "^20",

@@ -106,7 +106,15 @@ async function upsertCategories() {
     { name: 'Emergency Fund',  kind: 'save_short',  icon: '🛡️', color: '#6366f1' },
     { name: 'Travel Goal',     kind: 'goal',        icon: '✈️', color: '#f43f5e' },
     { name: 'Buffer',          kind: 'save_short',  icon: '🎯', color: '#94a3b8' },
-    { name: 'Income',          kind: 'income',      icon: '💰', color: '#22c55e' },
+    { name: 'Salary',          kind: 'income',      icon: '💼', color: '#22c55e' },
+    { name: 'Freelancing',     kind: 'income',      icon: '💻', color: '#10b981' },
+    { name: 'Bonus',           kind: 'income',      icon: '🎁', color: '#16a34a' },
+    { name: 'Gift',            kind: 'income',      icon: '🎀', color: '#84cc16' },
+    { name: 'Part-time',       kind: 'income',      icon: '⏰', color: '#14b8a6' },
+    { name: 'Rental Income',   kind: 'income',      icon: '🏠', color: '#0891b2' },
+    { name: 'Interest',        kind: 'income',      icon: '📊', color: '#6366f1' },
+    { name: 'Dividends',       kind: 'income',      icon: '📈', color: '#8b5cf6' },
+    { name: 'Other Income',    kind: 'income',      icon: '💰', color: '#6b7280' },
   ]
 
   const result: Record<string, string> = {}

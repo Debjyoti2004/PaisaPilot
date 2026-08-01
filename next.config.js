@@ -2,7 +2,17 @@
 const nextConfig = {
   output: 'standalone',
   experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', 'prisma'],
+    serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse'],
+  },
+  webpack: (config, { isServer }) => {
+    if (!isServer) {
+      // xlsx uses node builtins — stub them in the browser bundle
+      config.resolve.fallback = {
+        ...config.resolve.fallback,
+        fs: false, path: false, stream: false, crypto: false,
+      }
+    }
+    return config
   },
 }
 

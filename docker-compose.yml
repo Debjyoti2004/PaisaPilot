@@ -1,19 +1,66 @@
 version: '3.8'
+
 services:
+  # PostgreSQL Database (Production-grade with automated backups)
   postgres:
-    image: postgres:16-alpine
+    build:
+      context: ./docker/postgres
+      dockerfile: Dockerfile
+    container_name: paisapilot-db
     environment:
       POSTGRES_DB: paisapilot
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
+      POSTGRES_USER: paisapilot_user
+      POSTGRES_PASSWORD: your_secure_password_here
+      POSTGRES_INITDB_ARGS: "-c max_connections=200 -c shared_buffers=256MB -c effective_cache_size=1GB"
     ports:
       - "5432:5432"
     volumes:
+      # Persist data on host
       - postgres_data:/var/lib/postgresql/data
+      # Mount backups to host (outside container)
+      - ./backups:/backups
+      # Mount logs
+      - ./logs/postgres:/var/log
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 5s
+      test: ["CMD-SHELL", "pg_isready -U paisapilot_user"]
+      interval: 10s
       timeout: 5s
       retries: 5
+    restart: unless-stopped
+    networks:
+      - paisapilot-net
+    # Resource limits for production
+    deploy:
+      resources:
+        limits:
+          cpus: '1'
+          memory: 512M
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+
+  # Next.js App
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: paisapilot-app
+    environment:
+      DATABASE_URL: postgresql://paisapilot_user:your_secure_password_here@postgres:5432/paisapilot
+      DIRECT_URL: postgresql://paisapilot_user:your_secure_password_here@postgres:5432/paisapilot
+      NODE_ENV: production
+    ports:
+      - "3000:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - paisapilot-net
+    restart: unless-stopped
+
 volumes:
   postgres_data:
+
+networks:
+  paisapilot-net:
+    driver: bridge

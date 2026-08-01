@@ -1,309 +1,551 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { TopBar } from '@/components/layout/TopBar'
-import { QuickAddModal } from '@/components/transactions/QuickAddModal'
-import { VoiceQuickAdd } from '@/components/transactions/VoiceQuickAdd'
-import { Plus, TrendingUp, TrendingDown, AlertCircle, ArrowRight, Scissors, IndianRupee, Target, PiggyBank } from 'lucide-react'
-import { formatINR } from '@/lib/finance'
+import { useSession } from 'next-auth/react'
+import {
+  BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell,
+} from 'recharts'
+import {
+  ArrowUpRight, CalendarDays, ChevronDown, Settings,
+  RefreshCw, AlertCircle, ArrowRight, TrendingUp,
+} from 'lucide-react'
 import Link from 'next/link'
-import { clsx } from 'clsx'
+import { ChartTooltip } from '@/components/ChartTooltip'
 
-interface Envelope {
-  id: string
-  category: { name: string; icon: string; color: string; kind: string }
-  allocated: number; spent: number; remaining: number; percentUsed: number
-}
+// ── Types ─────────────────────────────────────────────────────
 interface DashboardData {
-  period: { month: string; monthLabel: string; incomeTotal: number; expectedIncome: number } | null
-  envelopes: Envelope[]
-  safeToSpend: number; safePerDay: number; daysLeft: number; daysElapsed: number; totalDays: number; totalBudgetUsed: number
-  savings: { liquid: number; reserved: number; locked: number; total: number }
-  recentTransactions: Array<{ id: string; narration: string; amount: number; type: string; occurredAt: string; category: { name: string; icon: string; color: string } }>
-  hasSalary: boolean
+  period: string
+  income: number
+  expenses: number
+  savingsRate: number
+  cashFlow: { month: string; income: number; spending: number }[]
+  spendingByCategory: { name: string; amount: number; color: string; pct: number }[]
+  highestSpending: { name: string; amount: number; pct: number } | null
+  recentTransactions: {
+    id: string; merchant: string; date: string; category: string
+    account: string; amount: number; type: string; tags: string[]
+  }[]
+  netWorth: { assets: number; liabilities: number; value: number } | null
+  comingUp: { id: string; name: string; category: string; amount: number; nextDate: string; cadence: string }[]
+  needsReview: number
+  savedPeriod: string
 }
 
-function Skeleton({ className }: { className?: string }) {
-  return <div className={clsx('skeleton rounded-xl', className)} />
+type Period = 'all-time' | 'this-month' | 'last-month' | 'last-3-months' | 'last-6-months' | 'this-year'
+const PERIODS: { value: Period; label: string }[] = [
+  { value: 'all-time',      label: 'All time'      },
+  { value: 'this-month',    label: 'This month'    },
+  { value: 'last-month',    label: 'Last month'    },
+  { value: 'last-3-months', label: 'Last 3 months' },
+  { value: 'last-6-months', label: 'Last 6 months' },
+  { value: 'this-year',     label: 'This year'     },
+]
+
+// ── Formatters ─────────────────────────────────────────────────
+function fmt(n: number) {
+  if (n >= 10_00_000) return `₹${(n / 10_00_000).toFixed(1)}L`
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
+}
+function fmtFull(n: number) {
+  return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
 }
 
-export default function Dashboard() {
-  const [data, setData] = useState<DashboardData | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [voiceTrigger, setVoiceTrigger] = useState(false)
+// ── Avatar initials ─────────────────────────────────────────────
+function getInitials(name?: string | null, email?: string | null) {
+  if (name) return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+  return (email?.[0] ?? 'U').toUpperCase()
+}
 
-  const now = new Date()
-  const monthLabel = now.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })
-
-  const fetch_ = useCallback(async () => {
-    try {
-      const r = await fetch('/api/dashboard')
-      const d = await r.json()
-      // Only set data if we got a valid response with envelopes array
-      if (d && Array.isArray(d.envelopes)) setData(d)
-    } catch {}
-    finally { setLoading(false) }
-  }, [])
-
-  useEffect(() => { fetch_() }, [fetch_])
-
-  const spendableEnvs = data?.envelopes.filter(e => ['need','want'].includes(e.category.kind)) || []
-  const totalSpent = data?.envelopes.reduce((s, e) => s + e.spent, 0) || 0
+// ── Period selector ─────────────────────────────────────────────
+function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+  const [open, setOpen] = useState(false)
+  const label = PERIODS.find(p => p.value === value)?.label ?? 'All time'
 
   return (
-    <>
-      <TopBar title={monthLabel} subtitle={`Day ${now.getDate()} of ${data?.totalDays || 31}`}
-        onAdd={() => setModalOpen(true)}
-        onVoice={() => setVoiceTrigger(true)}
-      />
+    <div className="relative">
+      <button className="period-badge" onClick={() => setOpen(o => !o)}>
+        <CalendarDays size={14} style={{ color: 'var(--text-3)' }} />
+        <span>{label}</span>
+        <ChevronDown size={13} style={{ color: 'var(--text-3)' }} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div
+            className="absolute right-0 z-50 animate-slide-down"
+            style={{ top: '100%', marginTop: 6, width: 180, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}
+          >
+            {PERIODS.map(p => (
+              <button
+                key={p.value}
+                onClick={() => { onChange(p.value); setOpen(false) }}
+                className="w-full text-left flex items-center gap-2 px-4 py-2.5 transition-colors"
+                style={{
+                  fontSize: 13,
+                  fontWeight: p.value === value ? 700 : 400,
+                  color: p.value === value ? 'var(--violet)' : 'var(--text-1)',
+                  background: p.value === value ? 'var(--violet-bg)' : 'transparent',
+                  border: 'none',
+                  cursor: 'pointer',
+                }}
+              >
+                {p.value === value && <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--violet)' }} />}
+                {p.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+    </div>
+  )
+}
 
-      <div className="flex-1 p-4 md:p-6 pb-36 md:pb-6 space-y-4 max-w-5xl mx-auto w-full">
+// ── Summary Cards ────────────────────────────────────────────────
+function SummaryCards({ data }: { data: DashboardData }) {
+  const savings = data.income - data.expenses
+  const cards = [
+    {
+      label: 'Net Worth',
+      value: data.netWorth ? fmtFull(data.netWorth.value) : 'Not set',
+      valueColor: data.netWorth ? 'var(--violet)' : 'var(--text-2)',
+      sub: data.netWorth ? 'Assets minus liabilities' : null,
+      link: '/settings#networth',
+      linkLabel: 'Set up in Settings →',
+      icon: <Settings size={14} />,
+    },
+    {
+      label: 'Income',
+      value: fmtFull(data.income),
+      valueColor: 'var(--green)',
+      sub: 'Credited this period',
+      link: '/transactions',
+      icon: <ArrowUpRight size={14} />,
+    },
+    {
+      label: 'Spending',
+      value: fmtFull(data.expenses),
+      valueColor: 'var(--orange)',
+      sub: 'Debited this period',
+      link: '/transactions',
+      icon: <ArrowUpRight size={14} />,
+    },
+    {
+      label: 'Net savings',
+      value: fmtFull(Math.abs(savings)),
+      valueColor: savings >= 0 ? 'var(--green)' : 'var(--orange)',
+      sub: savings >= 0
+        ? `${data.income > 0 ? Math.max(0, data.savingsRate) : 0}% savings rate`
+        : 'Spending exceeded income',
+      link: '/console',
+      icon: <ArrowUpRight size={14} />,
+    },
+    ...(data.highestSpending ? [{
+      label: 'Top spending',
+      value: data.highestSpending.name,
+      valueColor: 'var(--violet)',
+      sub: `${fmtFull(data.highestSpending.amount)} · ${data.highestSpending.pct}% of total`,
+      link: '/transactions',
+      icon: <ArrowUpRight size={14} />,
+    }] : []),
+  ]
 
-        {/* No salary banner */}
-        {!loading && data && !data.hasSalary && (
-          <div className="flex items-center gap-4 p-4 bg-amber-500/[0.08] border border-amber-500/20 rounded-2xl">
-            <AlertCircle size={18} className="text-amber-400 flex-shrink-0" />
-            <div className="flex-1 min-w-0">
-              <p className="text-[13px] font-semibold text-white">Record your salary for {monthLabel}</p>
-              <p className="text-[11px] text-slate-500 mt-0.5">Set up your budget envelopes to start tracking</p>
-            </div>
-            <Link href="/split" className="flex items-center gap-1.5 px-3.5 py-2 bg-amber-500/10 hover:bg-amber-500/20 text-amber-400 text-[12px] font-semibold rounded-xl border border-amber-500/20 transition-colors flex-shrink-0 whitespace-nowrap">
-              <Scissors size={13} />
-              Split Salary
+  return (
+    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+      {cards.map(c => (
+        <div key={c.label} className="card p-4">
+          <div className="flex items-center justify-between mb-2">
+            <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+              {c.label}
+            </p>
+            <Link href={c.link} style={{ color: 'var(--text-3)', display: 'flex' }}>
+              {c.icon}
             </Link>
           </div>
-        )}
-
-        {/* Hero row */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Safe to Spend — hero */}
-          <div className="md:col-span-2 bg-[#13131f] border border-white/[0.07] rounded-2xl p-5 relative overflow-hidden">
-            <div className="absolute top-0 right-0 w-48 h-48 bg-indigo-600/10 rounded-full blur-3xl pointer-events-none" />
-            <div className="relative z-10">
-              <p className="text-[10px] uppercase tracking-widest text-slate-500 mb-3">Safe to Spend</p>
-              {loading ? (
-                <Skeleton className="h-12 w-48 mb-2" />
-              ) : (
-                <>
-                  <p className="text-[40px] font-black text-white num" style={{ letterSpacing: '-0.04em' }}>
-                    {formatINR(data?.safeToSpend || 0)}
-                  </p>
-                  <p className="text-slate-400 text-[13px] mt-1 num">
-                    <span className="text-indigo-400 font-semibold">{formatINR(Math.round(data?.safePerDay || 0))}</span>
-                    <span className="text-slate-500"> per day · </span>
-                    <span className="text-slate-400">{data?.daysLeft || 0} days left</span>
-                  </p>
-                  {/* Month progress */}
-                  <div className="mt-4">
-                    <div className="flex justify-between text-[11px] text-slate-600 mb-1.5">
-                      <span>Day {data?.daysElapsed || 0}</span>
-                      <span>{Math.round(((data?.daysElapsed || 0) / (data?.totalDays || 31)) * 100)}% of month</span>
-                    </div>
-                    <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden">
-                      <div
-                        className="h-full bg-gradient-to-r from-indigo-600 to-violet-500 rounded-full"
-                        style={{ width: `${Math.round(((data?.daysElapsed || 0) / (data?.totalDays || 31)) * 100)}%`, transition: 'width 0.6s ease' }}
-                      />
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
-          {/* Stats column */}
-          <div className="space-y-3">
-            {/* Income */}
-            <div className="bg-[#13131f] border border-white/[0.07] rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] uppercase tracking-widest text-slate-600">Income</p>
-                <TrendingUp size={14} className="text-green-400" />
-              </div>
-              {loading ? <Skeleton className="h-7 w-32" /> : (
-                <p className="text-[22px] font-bold text-white num" style={{ letterSpacing: '-0.03em' }}>{formatINR(data?.period?.incomeTotal || 0)}</p>
-              )}
-            </div>
-
-            {/* Budget used */}
-            <div className="bg-[#13131f] border border-white/[0.07] rounded-2xl p-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] uppercase tracking-widest text-slate-600">Budget Used</p>
-                <span className={clsx('text-[11px] font-bold', (data?.totalBudgetUsed || 0) > 80 ? 'text-red-400' : 'text-slate-400')}>
-                  {data?.totalBudgetUsed || 0}%
-                </span>
-              </div>
-              {loading ? <Skeleton className="h-2 w-full" /> : (
-                <>
-                  <div className="h-2 bg-white/[0.05] rounded-full overflow-hidden mb-1.5">
-                    <div
-                      className={clsx('h-full rounded-full transition-all duration-700', (data?.totalBudgetUsed || 0) >= 90 ? 'bg-red-500' : (data?.totalBudgetUsed || 0) >= 70 ? 'bg-amber-500' : 'bg-green-500')}
-                      style={{ width: `${Math.min(100, data?.totalBudgetUsed || 0)}%` }}
-                    />
-                  </div>
-                  <p className="text-[11px] text-slate-500 num">{formatINR(totalSpent)} spent</p>
-                </>
-              )}
-            </div>
-          </div>
+          <p className="num summary-value" style={{ fontSize: 22, fontWeight: 800, color: c.valueColor, lineHeight: 1.15, wordBreak: 'break-all' }}>
+            {c.value}
+          </p>
+          {c.sub && (
+            <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.3 }}>{c.sub}</p>
+          )}
+          {!data.netWorth && c.label === 'Net Worth' && (
+            <Link href="/settings#networth">
+              <p style={{ fontSize: 11, color: 'var(--violet)', marginTop: 4 }}>Set up →</p>
+            </Link>
+          )}
         </div>
+      ))}
+    </div>
+  )
+}
 
-        {/* Quick actions */}
-        <div className="grid grid-cols-3 gap-3">
-          {[
-            { label: 'Add Expense', icon: Plus, onClick: () => setModalOpen(true), color: 'text-indigo-400', bg: 'bg-indigo-500/10 hover:bg-indigo-500/15 border-indigo-500/20' },
-            { label: 'Salary Split', icon: Scissors, href: '/split', color: 'text-amber-400', bg: 'bg-amber-500/10 hover:bg-amber-500/15 border-amber-500/20' },
-            { label: 'View Goals', icon: Target, href: '/goals', color: 'text-pink-400', bg: 'bg-pink-500/10 hover:bg-pink-500/15 border-pink-500/20' },
-          ].map(({ label, icon: Icon, onClick, href, color, bg }) => (
-            href ? (
-              <Link key={label} href={href} className={`flex flex-col items-center gap-2 p-3.5 rounded-xl border transition-all ${bg}`}>
-                <Icon size={18} className={color} />
-                <span className="text-[11px] font-medium text-slate-300 text-center">{label}</span>
-              </Link>
-            ) : (
-              <button key={label} onClick={onClick} className={`flex flex-col items-center gap-2 p-3.5 rounded-xl border transition-all ${bg}`}>
-                <Icon size={18} className={color} />
-                <span className="text-[11px] font-medium text-slate-300 text-center">{label}</span>
-              </button>
-            )
+// ── Cash Flow Chart ─────────────────────────────────────────────
+function CashFlowChart({ data }: { data: DashboardData['cashFlow'] }) {
+  const hasData = data.some(d => d.income > 0 || d.spending > 0)
+
+  return (
+    <div className="card p-6">
+      <div className="mb-4">
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Cash flow</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>Up to seven months of saved activity</p>
+      </div>
+      {!hasData ? (
+        <div className="empty-state">
+          <div className="empty-state-icon"><TrendingUp size={22} /></div>
+          <p style={{ fontSize: 14, color: 'var(--text-2)' }}>Import or add transactions to see cash flow.</p>
+        </div>
+      ) : (
+        <div>
+          <div className="flex items-center gap-4 justify-end mb-4">
+            <span className="flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--text-2)' }}>
+              <div className="w-3 h-3 rounded-sm" style={{ background: 'var(--violet)' }} />Income
+            </span>
+            <span className="flex items-center gap-1.5" style={{ fontSize: 12, color: 'var(--text-2)' }}>
+              <div className="w-3 h-3 rounded-sm" style={{ background: 'var(--orange)' }} />Spending
+            </span>
+          </div>
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={data} barGap={4} barCategoryGap="30%">
+              <XAxis dataKey="month" axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} />
+              <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#9ca3af' }} tickFormatter={v => fmt(v)} width={55} />
+              <Tooltip content={<ChartTooltip formatValue={fmtFull} />} cursor={{ fill: 'rgba(101,88,211,0.04)' }} />
+              <Bar dataKey="income" name="Income" fill="var(--violet)" radius={[4,4,0,0]} maxBarSize={40} />
+              <Bar dataKey="spending" name="Spending" fill="var(--orange)" radius={[4,4,0,0]} maxBarSize={40} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Spending by Category ────────────────────────────────────────
+const CAT_COLORS: Record<string, string> = {
+  Housing: '#6558D3', Utilities: '#f59e0b', Insurance: '#3b82f6',
+  Subscriptions: '#8b5cf6', Groceries: '#10b981', Dining: '#f97316',
+  Transportation: '#06b6d4', Shopping: '#ec4899', Health: '#ef4444',
+  Entertainment: '#a855f7', Income: '#16a34a', Other: '#9ca3af',
+  'Needs review': '#d97706',
+}
+
+function SpendingByCategory({ data }: { data: DashboardData['spendingByCategory'] }) {
+  return (
+    <div className="card p-6 h-full">
+      <div className="mb-4">
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Spending by category</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>Real expenses in this period</p>
+      </div>
+      {data.length === 0 ? (
+        <div className="empty-state" style={{ padding: '24px 0' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-3)' }}>No expenses in this period.</p>
+        </div>
+      ) : (
+        <div className="space-y-3">
+          {data.map(cat => (
+            <div key={cat.name}>
+              <div className="flex items-center gap-2 mb-1" style={{ minWidth: 0 }}>
+                <span style={{ fontSize: 13, color: 'var(--text-1)', fontWeight: 500, flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{cat.name}</span>
+                <span style={{ fontSize: 13, color: 'var(--text-1)', fontWeight: 600, flexShrink: 0 }} className="num">{fmtFull(cat.amount)}</span>
+              </div>
+              <div className="progress-track">
+                <div
+                  className="progress-fill"
+                  style={{
+                    width: `${cat.pct}%`,
+                    background: CAT_COLORS[cat.name] ?? 'var(--violet)',
+                  }}
+                />
+              </div>
+            </div>
           ))}
         </div>
+      )}
+    </div>
+  )
+}
 
-        {/* Envelopes */}
-        {(!loading && data?.envelopes && data.envelopes.length > 0) && (
+// ── Recent Activity ─────────────────────────────────────────────
+function RecentActivity({ txns }: { txns: DashboardData['recentTransactions'] }) {
+  function getInitialChar(name: string) {
+    return name.trim()[0]?.toUpperCase() ?? '?'
+  }
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Recent activity</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>Five newest entries</p>
+        </div>
+        <Link href="/transactions">
+          <button className="btn-ghost" style={{ fontSize: 12, gap: 4 }}>
+            View all <ArrowRight size={13} />
+          </button>
+        </Link>
+      </div>
+      {txns.length === 0 ? (
+        <div className="empty-state" style={{ padding: '24px 0' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-3)' }}>No transactions yet. Add one or import a statement.</p>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {txns.map(tx => (
+            <div key={tx.id} className="flex items-center gap-2.5 py-2 px-2 rounded-xl" style={{ background: 'transparent', transition: 'background 0.1s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+              <div
+                className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
+                style={{ background: 'var(--bg-3)', fontSize: 12, fontWeight: 700, color: 'var(--text-2)' }}
+              >
+                {getInitialChar(tx.merchant)}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {tx.merchant}
+                </p>
+                <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  {tx.date} · {tx.category}
+                </p>
+              </div>
+              <span
+                className="num"
+                style={{
+                  fontSize: 13,
+                  fontWeight: 700,
+                  color: tx.type === 'income' ? 'var(--green)' : 'var(--text-1)',
+                  flexShrink: 0,
+                  marginLeft: 8,
+                }}
+              >
+                {tx.type === 'income' ? '+' : '–'}{fmtFull(tx.amount)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Ledgerly Insight ────────────────────────────────────────────
+function InsightPanel({ needsReview }: { needsReview: number }) {
+  return (
+    <div className="card p-6 h-full">
+      <div className="mb-4">
+        <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Ledgerly insight</h2>
+        <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>Based on your records</p>
+      </div>
+      {needsReview > 0 ? (
+        <div className="flex items-start gap-3 p-3 rounded-xl" style={{ background: 'var(--orange-bg)', border: '1px solid var(--orange-border)' }}>
+          <AlertCircle size={16} style={{ color: 'var(--orange)', marginTop: 1, flexShrink: 0 }} />
           <div>
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[10px] uppercase tracking-widest text-slate-600">Budget Envelopes</p>
-              <Link href="/envelopes" className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
-                View all <ArrowRight size={12} />
-              </Link>
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-              {data.envelopes.filter(e => e.category.kind !== 'income').slice(0, 6).map(env => {
-                const pct = Math.min(100, env.percentUsed)
-                const isOver = pct >= 100
-                const isDanger = pct >= 90
-                const isWarn = pct >= 70 && !isDanger
-                return (
-                  <div
-                    key={env.id}
-                    className={clsx(
-                      'bg-[#13131f] border rounded-xl p-3.5 transition-all',
-                      isDanger ? 'border-red-500/30 animate-pulse-red' : isWarn ? 'border-amber-500/20' : 'border-white/[0.07] hover:border-white/[0.12]'
-                    )}
-                  >
-                    <div className="flex items-center gap-2 mb-2.5">
-                      <span className="text-[18px]">{env.category.icon}</span>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-medium text-white truncate">{env.category.name}</p>
-                        <p className="text-[10px] text-slate-600 num">{Math.round(100 - pct)}% left</p>
-                      </div>
-                    </div>
-                    <div className="h-1.5 bg-white/[0.05] rounded-full overflow-hidden mb-2">
-                      <div
-                        className={clsx('h-full rounded-full transition-all duration-500', isDanger ? 'bg-red-500' : isWarn ? 'bg-amber-500' : 'bg-green-500')}
-                        style={{ width: `${pct}%` }}
-                      />
-                    </div>
-                    <div className="flex justify-between">
-                      <span className={clsx('text-[11px] font-semibold num', isDanger ? 'text-red-400' : isWarn ? 'text-amber-400' : 'text-slate-300')}>{formatINR(env.spent)}</span>
-                      <span className="text-[10px] text-slate-600 num">/ {formatINR(env.allocated)}</span>
-                    </div>
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        )}
-
-        {/* Bottom row: Savings + Recent Transactions */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {/* Savings */}
-          <div className="bg-[#13131f] border border-white/[0.07] rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <PiggyBank size={14} className="text-green-400" />
-                <p className="text-[10px] uppercase tracking-widest text-slate-600">Savings</p>
-              </div>
-              <Link href="/savings" className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1">View <ArrowRight size={11} /></Link>
-            </div>
-            {loading ? <Skeleton className="h-8 w-40 mb-3" /> : (
-              <>
-                <p className="text-[26px] font-bold text-white num mb-3" style={{ letterSpacing: '-0.03em' }}>{formatINR(data?.savings.total || 0)}</p>
-                <div className="space-y-2">
-                  {[
-                    { label: 'Liquid', val: data?.savings.liquid || 0, color: 'bg-teal-500' },
-                    { label: 'Reserved', val: data?.savings.reserved || 0, color: 'bg-pink-500' },
-                    { label: 'Locked', val: data?.savings.locked || 0, color: 'bg-green-500' },
-                  ].map(seg => (
-                    <div key={seg.label} className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 w-20 flex-shrink-0">
-                        <div className={`w-2 h-2 rounded-full ${seg.color}`} />
-                        <span className="text-[11px] text-slate-500">{seg.label}</span>
-                      </div>
-                      <div className="flex-1 h-1 bg-white/[0.05] rounded-full overflow-hidden">
-                        <div className={`h-full ${seg.color} rounded-full`} style={{ width: `${(data?.savings.total || 0) > 0 ? (seg.val / (data?.savings.total || 1)) * 100 : 0}%` }} />
-                      </div>
-                      <span className="text-[11px] text-slate-400 num w-20 text-right">{formatINR(seg.val)}</span>
-                    </div>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
-
-          {/* Recent transactions */}
-          <div className="bg-[#13131f] border border-white/[0.07] rounded-2xl p-5">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-[10px] uppercase tracking-widest text-slate-600">Recent Transactions</p>
-              <Link href="/transactions" className="text-[11px] text-indigo-400 hover:text-indigo-300 flex items-center gap-1">View all <ArrowRight size={11} /></Link>
-            </div>
-            {loading ? (
-              <div className="space-y-3">{[1,2,3].map(i => <Skeleton key={i} className="h-10 w-full" />)}</div>
-            ) : (data?.recentTransactions?.length || 0) === 0 ? (
-              <div className="py-6 text-center">
-                <p className="text-slate-500 text-[13px]">No transactions yet</p>
-                <button onClick={() => setModalOpen(true)} className="mt-2 text-indigo-400 text-[12px] hover:text-indigo-300">+ Add your first expense</button>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                {data?.recentTransactions.map(tx => {
-                  const isCredit = tx.type === 'credit'
-                  return (
-                    <div key={tx.id} className="flex items-center gap-3 px-2 py-2 rounded-xl hover:bg-white/[0.03] transition-colors group">
-                      <div className="w-8 h-8 rounded-xl flex items-center justify-center text-[16px] flex-shrink-0" style={{ backgroundColor: `${tx.category.color}20` }}>
-                        {tx.category.icon}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-medium text-white truncate">{tx.narration}</p>
-                        <p className="text-[10px] text-slate-600">{tx.category.name} · {new Date(tx.occurredAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}</p>
-                      </div>
-                      <span className={clsx('text-[12px] font-bold num flex-shrink-0', isCredit ? 'text-green-400' : 'text-slate-200')}>
-                        {isCredit ? '+' : '-'}{formatINR(tx.amount)}
-                      </span>
-                    </div>
-                  )
-                })}
-              </div>
-            )}
+            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }}>{needsReview} need{needsReview !== 1 ? 's' : ''} review</p>
+            <p style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
+              Assign categories to keep your overview accurate.
+            </p>
+            <Link href="/transactions">
+              <p style={{ fontSize: 12, color: 'var(--violet)', marginTop: 4, fontWeight: 500 }}>Review now →</p>
+            </Link>
           </div>
         </div>
+      ) : (
+        <div className="flex items-start gap-3 p-3 rounded-xl" style={{ background: 'var(--green-bg)', border: '1px solid var(--green-border)' }}>
+          <div style={{ fontSize: 16 }}>✅</div>
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }}>All categorized</p>
+            <p style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
+              Every transaction has a category. Your overview is accurate.
+            </p>
+          </div>
+        </div>
+      )}
 
+      {/* Wealth Plan teaser */}
+      <div className="mt-4 flex items-start gap-3 p-3 rounded-xl" style={{ background: 'var(--violet-bg)', border: '1px solid var(--violet-border)' }}>
+        <TrendingUp size={16} style={{ color: 'var(--violet)', marginTop: 1, flexShrink: 0 }} />
+        <div>
+          <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }}>Wealth Plan active</p>
+          <p style={{ fontSize: 12, color: 'var(--text-2)', marginTop: 2 }}>
+            See how your spending maps to Needs / Wants / Investments.
+          </p>
+          <Link href="/wealth-plan">
+            <p style={{ fontSize: 12, color: 'var(--violet)', marginTop: 4, fontWeight: 500 }}>View plan →</p>
+          </Link>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Coming Up ───────────────────────────────────────────────────
+function ComingUp({ items }: { items: DashboardData['comingUp'] }) {
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <div>
+          <h2 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Coming up</h2>
+          <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 2 }}>Confirmed payments</p>
+        </div>
+        <Link href="/recurring">
+          <button className="btn-ghost" style={{ fontSize: 12, gap: 4 }}>
+            Manage <ArrowRight size={13} />
+          </button>
+        </Link>
+      </div>
+      {items.length === 0 ? (
+        <div className="empty-state" style={{ padding: '16px 0' }}>
+          <RefreshCw size={20} style={{ color: 'var(--text-3)' }} />
+          <p style={{ fontSize: 13, color: 'var(--text-3)' }}>No confirmed recurring payments due soon.</p>
+          <Link href="/recurring">
+            <p style={{ fontSize: 13, color: 'var(--violet)', fontWeight: 500, marginTop: 4 }}>Set up recurring →</p>
+          </Link>
+        </div>
+      ) : (
+        <div className="space-y-1">
+          {items.map(item => (
+            <div key={item.id} className="flex items-center gap-3 py-2.5 px-2 rounded-xl"
+              style={{ background: 'transparent', transition: 'background 0.1s' }}
+              onMouseEnter={e => (e.currentTarget.style.background = 'var(--bg)')}
+              onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}>
+              <div
+                className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
+                style={{ background: 'var(--bg-3)' }}
+              >
+                <RefreshCw size={15} style={{ color: 'var(--text-3)' }} />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }} className="truncate">{item.name}</p>
+                <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{item.nextDate}</p>
+              </div>
+              <span className="num" style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)', flexShrink: 0 }}>
+                {fmtFull(item.amount)}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ── Main Dashboard ──────────────────────────────────────────────
+export default function DashboardPage() {
+  const { data: session } = useSession()
+  const user = session?.user as { name?: string | null; email?: string | null; image?: string | null } | undefined
+
+  const [period, setPeriod] = useState<Period>('all-time')
+  const [data, setData] = useState<DashboardData | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = useCallback(async (p: Period) => {
+    setLoading(true); setError('')
+    try {
+      const res = await fetch(`/api/dashboard?period=${p}`)
+      if (!res.ok) throw new Error('Failed to load dashboard')
+      const d = await res.json()
+      setData(d)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // On mount, load saved period first
+  useEffect(() => {
+    async function init() {
+      try {
+        const res = await fetch('/api/dashboard?period=all-time')
+        const d = await res.json()
+        const saved = (d.savedPeriod ?? 'all-time') as Period
+        setPeriod(saved)
+        if (saved === 'all-time') {
+          setData(d)
+          setLoading(false)
+        } else {
+          await load(saved)
+        }
+      } catch {
+        setLoading(false); setError('Failed to load')
+      }
+    }
+    init()
+  }, [load])
+
+  // Refresh on global event
+  useEffect(() => {
+    const handler = () => load(period)
+    window.addEventListener('paisapilot:refresh', handler)
+    return () => window.removeEventListener('paisapilot:refresh', handler)
+  }, [period, load])
+
+  const handlePeriodChange = (p: Period) => {
+    setPeriod(p)
+    load(p)
+  }
+
+  const greeting = () => {
+    const h = new Date().getHours()
+    if (h < 12) return 'Good morning'
+    if (h < 17) return 'Good afternoon'
+    return 'Good evening'
+  }
+
+  if (error) return (
+    <div className="p-6">
+      <div className="card p-8 text-center">
+        <AlertCircle size={32} style={{ color: 'var(--red)', margin: '0 auto 12px' }} />
+        <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-1)' }}>Failed to load dashboard</p>
+        <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>{error}</p>
+        <button className="btn-primary mt-4" onClick={() => load(period)}>Retry</button>
+      </div>
+    </div>
+  )
+
+  return (
+    <div className="p-6 space-y-6" style={{ minWidth: 0 }}>
+      {/* Header row */}
+      <div style={{ display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', flexWrap: 'wrap', gap: 10 }}>
+        <div style={{ minWidth: 0 }}>
+          <h2 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-1)', lineHeight: 1.15 }}>
+            {greeting()}{user?.name ? `, ${user.name.split(' ')[0]}` : ''}.
+          </h2>
+          <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>
+            A calm overview built only from your saved records.
+          </p>
+        </div>
+        <PeriodSelector value={period} onChange={handlePeriodChange} />
       </div>
 
-      {/* Voice quick add (desktop FAB + modal) */}
-      <VoiceQuickAdd onSuccess={fetch_} triggerStart={voiceTrigger} onTriggerConsumed={() => setVoiceTrigger(false)} />
+      {/* Loading skeleton */}
+      {loading && (
+        <div className="space-y-4">
+          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+            {[1,2,3,4].map(i => <div key={i} className="card skeleton" style={{ height: 100 }} />)}
+          </div>
+          <div className="card skeleton" style={{ height: 280 }} />
+          <div className="card skeleton" style={{ height: 200 }} />
+        </div>
+      )}
 
-      {/* Desktop-only FAB — + button */}
-      <button
-        onClick={() => setModalOpen(true)}
-        className="hidden md:flex fixed bottom-6 right-6 w-14 h-14 bg-indigo-600 hover:bg-indigo-500 rounded-full items-center justify-center shadow-lg shadow-indigo-500/30 transition-all hover:scale-105 active:scale-95 z-40"
-        aria-label="Add transaction"
-      >
-        <Plus size={22} className="text-white" strokeWidth={2.5} />
-      </button>
+      {/* Content */}
+      {!loading && data && (
+        <>
+          <SummaryCards data={data} />
 
-      <QuickAddModal isOpen={modalOpen} onClose={() => setModalOpen(false)} onSuccess={fetch_} />
-    </>
+          <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+            <CashFlowChart data={data.cashFlow} />
+            <SpendingByCategory data={data.spendingByCategory} />
+          </div>
+
+          <div className="grid gap-4 lg:grid-cols-[1fr_360px]">
+            <RecentActivity txns={data.recentTransactions} />
+            <InsightPanel needsReview={data.needsReview} />
+          </div>
+
+          <ComingUp items={data.comingUp} />
+        </>
+      )}
+    </div>
   )
 }
