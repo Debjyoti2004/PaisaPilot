@@ -39,3 +39,16 @@ next-env.d.ts
 
 # prisma
 prisma/*.db
+
+# claude code settings (contains sensitive credentials)
+.claude/settings.local.json
+.claude/projects/**/memory/
+
+# docker & backups (sensitive data)
+backups/
+logs/
+docker-compose.override.yml
+
+# system files
+.vscode/settings.json
+.idea/
