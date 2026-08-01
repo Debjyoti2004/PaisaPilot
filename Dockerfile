@@ -11,6 +11,9 @@ RUN npm ci --legacy-peer-deps
 # Copy source
 COPY . .
 
+# Generate Prisma client types (required for TypeScript build)
+RUN npx prisma generate
+
 # Build Next.js app
 RUN npm run build
 

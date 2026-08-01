@@ -46,21 +46,23 @@ DAYS LEFT IN MONTH: ${daysLeft}
 MONTH: ${monthLabel}
 
 USER SETTINGS:
-- Expected monthly salary: ${fmt(settings?.expectedSalary ?? 37000)}
-- Savings floor: ${fmt(settings?.savingsFloor ?? 3000)}
+- Expected monthly salary: ${fmt(Number(settings?.expectedSalary ?? 37000))}
+- Savings floor: ${fmt(Number(settings?.savingsFloor ?? 3000))}
 `
 
   if (period) {
     ctx += `
-INCOME THIS MONTH: ${fmt(period.incomeTotal)} (expected: ${fmt(period.expectedIncome)})
+INCOME THIS MONTH: ${fmt(Number(period.incomeTotal))} (expected: ${fmt(Number(period.expectedIncome))})
 
 BUDGET ENVELOPES:
 `
-    const sorted = [...period.envelopes].sort((a, b) => b.spent - a.spent)
+    const sorted = [...period.envelopes].sort((a, b) => Number(b.spent) - Number(a.spent))
     for (const env of sorted) {
-      const pct = env.allocated > 0 ? Math.round((env.spent / env.allocated) * 100) : 0
+      const spent = Number(env.spent)
+      const allocated = Number(env.allocated)
+      const pct = allocated > 0 ? Math.round((spent / allocated) * 100) : 0
       const status = pct >= 100 ? '🔴 OVER' : pct >= 90 ? '🟠 NEAR LIMIT' : pct >= 70 ? '🟡 WATCH' : '🟢 OK'
-      ctx += `  ${status} ${env.category.name}: ${fmt(env.spent)} / ${fmt(env.allocated)} (${pct}%) [${env.category.kind}]\n`
+      ctx += `  ${status} ${env.category.name}: ${fmt(spent)} / ${fmt(allocated)} (${pct}%) [${env.category.kind}]\n`
     }
   } else {
     ctx += `\nBUDGET: Salary not recorded yet for ${monthLabel}.\n`
@@ -76,34 +78,40 @@ MONTHLY SUMMARY:
 
   if (transactions.length > 0) {
     const byCat: Record<string, number> = {}
-    for (const t of transactions.filter(x => x.type === 'debit')) {
+    for (const t of transactions) {
+      if (t.type !== 'debit') continue
       const k = t.category?.name ?? 'Other'
-      byCat[k] = (byCat[k] ?? 0) + t.amount
+      byCat[k] = (byCat[k] ?? 0) + Number(t.amount)
     }
     const topCats = Object.entries(byCat).sort((a, b) => b[1] - a[1]).slice(0, 5)
     ctx += `\nTOP SPENDING CATEGORIES:\n`
-    topCats.forEach(([cat, amt]) => { ctx += `  • ${cat}: ${fmt(amt)}\n` })
+    for (const [cat, amt] of topCats) { ctx += `  • ${cat}: ${fmt(amt)}\n` }
 
     ctx += `\nRECENT TRANSACTIONS (last 15):\n`
     for (const t of transactions.slice(0, 15)) {
-      ctx += `  • ${t.occurredAt.toLocaleDateString('en-IN')} | ${t.type === 'credit' ? '+' : '-'}${fmt(t.amount)} | ${t.narration} [${t.category?.name ?? 'Other'}]\n`
+      ctx += `  • ${t.occurredAt.toLocaleDateString('en-IN')} | ${t.type === 'credit' ? '+' : '-'}${fmt(Number(t.amount))} | ${t.narration} [${t.category?.name ?? 'Other'}]\n`
     }
   }
 
   if (savings.length > 0) {
     ctx += `\nSAVINGS BUCKETS:\n`
+    let savingsTotal = 0
     for (const b of savings) {
-      ctx += `  • ${b.icon} ${b.name}: ${fmt(b.balance)} [${b.liquidity}]\n`
+      const bal = Number(b.balance)
+      savingsTotal += bal
+      ctx += `  • ${b.icon} ${b.name}: ${fmt(bal)} [${b.liquidity}]\n`
     }
-    ctx += `  TOTAL: ${fmt(savings.reduce((s, b) => s + b.balance, 0))}\n`
+    ctx += `  TOTAL: ${fmt(savingsTotal)}\n`
   }
 
   if (goals.length > 0) {
     ctx += `\nFINANCIAL GOALS:\n`
     for (const g of goals) {
-      const pct = g.targetAmount > 0 ? Math.round((g.savedAmount / g.targetAmount) * 100) : 0
+      const saved = Number(g.savedAmount)
+      const target = Number(g.targetAmount)
+      const pct = target > 0 ? Math.round((saved / target) * 100) : 0
       const dl = g.deadline ? ` | deadline: ${new Date(g.deadline).toLocaleDateString('en-IN')}` : ''
-      ctx += `  • ${g.icon} ${g.name}: ${fmt(g.savedAmount)} / ${fmt(g.targetAmount)} (${pct}%)${dl}\n`
+      ctx += `  • ${g.icon} ${g.name}: ${fmt(saved)} / ${fmt(target)} (${pct}%)${dl}\n`
     }
   }
 
