@@ -31,8 +31,11 @@ async function buildFinancialContext(userId: string): Promise<string> {
   ])
 
   const daysLeft = monthEnd.getDate() - now.getDate() + 1
-  const totalDebits = transactions.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0)
-  const totalCredits = transactions.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0)
+  let totalDebits = 0, totalCredits = 0
+  for (const t of transactions) {
+    if (t.type === 'debit') totalDebits += Number(t.amount)
+    else if (t.type === 'credit') totalCredits += Number(t.amount)
+  }
 
   let ctx = `You are PaisaPilot, a smart personal finance assistant for an Indian user named Debjyoti.
 You have access to their real financial data below. Answer in a friendly, conversational way.
