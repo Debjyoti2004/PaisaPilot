@@ -307,7 +307,7 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
                         if (!amount.includes('.')) setAmount(prev => (prev || '0') + '.')
                       } else {
                         if (amount === '0') setAmount(key)
-                        else if (amount.length < 8) setAmount(prev => prev + key)
+                        else if (amount.length < 10) setAmount(prev => prev + key)
                       }
                     }}
                     className={`h-12 rounded-2xl text-[18px] font-semibold transition-all active:scale-95 ${
