@@ -33,7 +33,12 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY prisma ./prisma
 
+# Copy prisma CLI from builder so production stage has the correct version
+COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
+COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
+COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
+
 # Sync schema and start app
-CMD ["sh", "-c", "npx prisma db push --skip-generate && npm start"]
+CMD ["sh", "-c", "node_modules/.bin/prisma db push --skip-generate && npm start"]
 
 EXPOSE 3000
