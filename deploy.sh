@@ -26,7 +26,7 @@ command -v docker &>/dev/null                      || fatal "Docker not installe
 
 source "$DEPLOY_DIR/.env"
 [[ -n "${DOCKERHUB_USERNAME:-}" ]]  || fatal "DOCKERHUB_USERNAME not set in .env"
-[[ -n "${DATABASE_URL:-}" ]]        || fatal "DATABASE_URL not set in .env"
+[[ -n "${DB_PASSWORD:-}" ]]         || fatal "DB_PASSWORD not set in .env"
 
 IMAGE="${DOCKERHUB_USERNAME}/paisapilot:${TAG}"
 COMPOSE="docker compose -f $DEPLOY_DIR/docker-compose.prod.yml"
