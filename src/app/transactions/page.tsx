@@ -414,30 +414,32 @@ export default function TransactionsPage() {
           <input type="text" placeholder="Search merchant, category or tag" value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }} className="form-input" style={{ paddingLeft: 36, width: '100%' }} />
         </div>
-        <div className="tab-scroll" style={{ gap: 8 }}>
-          <div className="relative" style={{ flexShrink: 0 }}>
-            <select value={accountFilter} onChange={e => { setAccountFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 140 }}>
-              <option value="">All accounts</option>
-              {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
-            </select>
-            <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
-          </div>
-          {!groupTab && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="tab-scroll" style={{ gap: 8 }}>
             <div className="relative" style={{ flexShrink: 0 }}>
-              <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 130 }}>
-                <option value="">All types</option>
-                <option value="income">Income only</option>
-                <option value="expense">Expenses only</option>
+              <select value={accountFilter} onChange={e => { setAccountFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 140 }}>
+                <option value="">All accounts</option>
+                {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
               </select>
               <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
             </div>
-          )}
-          <div className="relative" style={{ flexShrink: 0 }}>
-            <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
-              <option value="">All categories</option>
-              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-            </select>
-            <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            {!groupTab && (
+              <div className="relative" style={{ flexShrink: 0 }}>
+                <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 130 }}>
+                  <option value="">All types</option>
+                  <option value="income">Income only</option>
+                  <option value="expense">Expenses only</option>
+                </select>
+                <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+              </div>
+            )}
+            <div className="relative" style={{ flexShrink: 0 }}>
+              <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
+                <option value="">All categories</option>
+                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+              </select>
+              <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
           </div>
           <div style={{ flexShrink: 0 }}>
             <PeriodSelector value={period ?? 'all-time'} onChange={handlePeriodChange} />
