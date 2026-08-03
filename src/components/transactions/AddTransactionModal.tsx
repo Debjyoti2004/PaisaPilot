@@ -63,7 +63,21 @@ interface AddTransactionModalProps {
 
 export function AddTransactionModal({ isOpen, onClose, onSuccess }: AddTransactionModalProps) {
   const [categories, setCategories] = useState<Category[]>([])
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount] = useState('')  // raw numeric string, no commas
+
+  function handleAmountChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value.replace(/,/g, '').replace(/[^0-9.]/g, '')
+    const parts = raw.split('.')
+    const clean = parts.length > 1 ? parts[0] + '.' + parts.slice(1).join('') : parts[0]
+    setAmount(clean)
+  }
+
+  function formatAmountDisplay(val: string) {
+    if (!val) return ''
+    const [int, dec] = val.split('.')
+    const intFormatted = (parseInt(int, 10) || 0).toLocaleString('en-IN')
+    return dec !== undefined ? `${intFormatted}.${dec}` : intFormatted
+  }
   const [narration, setNarration] = useState('')
   const [selectedCategoryId, setSelectedCategoryId] = useState('')
   const [txType, setTxType] = useState<'debit' | 'credit'>('debit')
@@ -230,12 +244,11 @@ export function AddTransactionModal({ isOpen, onClose, onSuccess }: AddTransacti
             <div className="flex items-center gap-2">
               <IndianRupee size={24} className="text-primary-light flex-shrink-0" />
               <input
-                type="number"
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
+                type="text"
+                inputMode="decimal"
+                value={formatAmountDisplay(amount)}
+                onChange={handleAmountChange}
                 placeholder="0"
-                min="0"
-                step="0.01"
                 className="flex-1 bg-transparent text-3xl font-black text-text-primary placeholder:text-text-secondary/30 focus:outline-none"
                 autoFocus
               />

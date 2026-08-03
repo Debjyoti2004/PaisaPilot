@@ -266,7 +266,13 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
                     className="text-[48px] font-black text-white num leading-none"
                     style={{ letterSpacing: '-0.04em', minWidth: '2ch' }}
                   >
-                    {amount || '0'}
+                    {amount
+                      ? (() => {
+                          const [int, dec] = amount.split('.')
+                          const fmt = (parseInt(int, 10) || 0).toLocaleString('en-IN')
+                          return dec !== undefined ? `${fmt}.${dec}` : fmt
+                        })()
+                      : '0'}
                   </span>
                   <span className="w-0.5 h-10 bg-indigo-400 rounded-full animate-pulse" />
                 </div>
