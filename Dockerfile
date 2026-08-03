@@ -38,7 +38,11 @@ COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=builder /app/node_modules/@prisma ./node_modules/@prisma
 COPY --from=builder /app/node_modules/prisma ./node_modules/prisma
 
+# Create prisma bin symlink (not preserved across COPY --from)
+RUN ln -sf /app/node_modules/prisma/build/index.js /app/node_modules/.bin/prisma && \
+    chmod +x /app/node_modules/.bin/prisma
+
 # Sync schema and start app
-CMD ["sh", "-c", "node_modules/.bin/prisma db push --skip-generate && npm start"]
+CMD ["sh", "-c", "node /app/node_modules/prisma/build/index.js db push --skip-generate && npm start"]
 
 EXPOSE 3000
