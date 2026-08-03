@@ -19,6 +19,7 @@ export async function GET(request: NextRequest) {
         'email',
         'profile',
         'https://www.googleapis.com/auth/drive.file',
+        'https://www.googleapis.com/auth/drive.metadata.readonly',
       ].join(' '),
       access_type:   'offline',
       prompt:        'consent',

@@ -407,10 +407,10 @@ function DriveSection({ settings, onSave, saving }: {
               ) : pickerErr ? (
                 <div className="m-4 p-4 rounded-xl" style={{ background: 'var(--violet-bg)', border: '1px solid var(--violet-border)', textAlign: 'center' }}>
                   <Cloud size={28} style={{ color: 'var(--violet)', margin: '0 auto 10px' }} />
-                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 4 }}>Drive not connected</p>
-                  <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>Authorize PaisaPilot to access your Google Drive.</p>
+                  <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 4 }}>Could not load folders</p>
+                  <p style={{ fontSize: 12, color: 'var(--text-3)', marginBottom: 12 }}>{pickerErr}</p>
                   <a href="/api/auth/link-drive" className="btn-primary inline-flex items-center gap-2" style={{ fontSize: 13, textDecoration: 'none' }}>
-                    <Cloud size={14} /> Connect Google Drive
+                    <Cloud size={14} /> Re-authorize Drive
                   </a>
                 </div>
               ) : filtered.length === 0 ? (

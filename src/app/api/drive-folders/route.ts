@@ -58,7 +58,9 @@ export async function GET() {
 
     if (!res.ok) {
       const err = await res.json()
-      return NextResponse.json({ error: err.error?.message ?? 'Failed to list folders', folders: [] }, { status: 500 })
+      const msg = err.error?.message ?? 'Failed to list folders'
+      console.error('Drive folders API error:', err.error?.status, msg)
+      return NextResponse.json({ error: msg, folders: [] }, { status: res.status === 401 ? 401 : 500 })
     }
 
     const data = await res.json()
