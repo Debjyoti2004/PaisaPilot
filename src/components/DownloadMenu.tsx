@@ -212,9 +212,13 @@ export function DownloadMenu({ filename, rows, columns, label = 'Download', clas
       const inPortal  = portalRef.current?.contains(e.target as Node)
       if (!inTrigger && !inPortal) setOpen(false)
     }
-    // Use click (not mousedown) so portal item onClick fires before the dropdown closes
+    function onScroll() { setOpen(false) }
     document.addEventListener('click', handler, true)
-    return () => document.removeEventListener('click', handler, true)
+    window.addEventListener('scroll', onScroll, true)
+    return () => {
+      document.removeEventListener('click', handler, true)
+      window.removeEventListener('scroll', onScroll, true)
+    }
   }, [])
 
   async function handleDownload(fmt: 'csv' | 'xlsx' | 'pdf') {
