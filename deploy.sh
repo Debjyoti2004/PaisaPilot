@@ -47,7 +47,7 @@ TAG="$TAG" DOCKERHUB_USERNAME="$DOCKERHUB_USERNAME" $COMPOSE up -d --remove-orph
 
 # ── Health check ───────────────────────────────────────────────────────────
 info "Waiting for health check..."
-RETRIES=12
+RETRIES=24
 for i in $(seq 1 $RETRIES); do
     if curl -fsS http://localhost:3000/api/health &>/dev/null; then
         success "App is healthy!"
