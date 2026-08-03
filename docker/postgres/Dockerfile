@@ -3,7 +3,7 @@ FROM postgres:16-alpine
 # Install backup tools
 RUN apk add --no-cache \
     bash \
-    cron \
+    dcron \
     gzip \
     curl
 
