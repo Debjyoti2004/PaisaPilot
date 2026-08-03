@@ -33,7 +33,7 @@ COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
 COPY prisma ./prisma
 
-# Run migrations and start app
-CMD ["sh", "-c", "npx prisma migrate deploy && npm start"]
+# Sync schema and start app
+CMD ["sh", "-c", "npx prisma db push --skip-generate && npm start"]
 
 EXPOSE 3000
