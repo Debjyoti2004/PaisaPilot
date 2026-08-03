@@ -150,9 +150,9 @@ function SummaryCards({ data }: { data: DashboardData }) {
   ]
 
   return (
-    <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
-      {cards.map(c => (
-        <div key={c.label} className="card p-4">
+    <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
+      {cards.map((c, i) => (
+        <div key={c.label} className={`card p-4${i === cards.length - 1 && cards.length % 4 !== 0 ? ' lg:col-span-4' : ''}`}>
           <div className="flex items-center justify-between mb-2">
             <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
               {c.label}
@@ -520,7 +520,7 @@ export default function DashboardPage() {
       {/* Loading skeleton */}
       {loading && (
         <div className="space-y-4">
-          <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(2, 1fr)' }}>
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
             {[1,2,3,4].map(i => <div key={i} className="card skeleton" style={{ height: 100 }} />)}
           </div>
           <div className="card skeleton" style={{ height: 280 }} />
