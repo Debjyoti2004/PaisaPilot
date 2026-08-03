@@ -119,7 +119,7 @@ export async function GET(request: NextRequest) {
       wealthGroup: t.wealthGroup ?? null,
       source: t.source,
       occurredAt: t.occurredAt.toISOString(),
-      actualPaidDate: t.actualPaidDate?.toISOString() ?? null,
+      actualPaidDate: t.actualPaidDate?.toISOString().slice(0, 10) ?? null,
     }))
 
     return NextResponse.json({ transactions, total, page, pageSize })
@@ -165,7 +165,17 @@ export async function POST(request: NextRequest) {
       const existing = await prisma.transaction.findFirst({ where: { dedupeHash: fingerprint } })
       if (existing) return NextResponse.json({ error: 'Duplicate transaction', duplicate: true }, { status: 409 })
 
-      const occurredAt = new Date(dateStr + 'T12:00:00')
+      let occurredAt = new Date(dateStr + 'T12:00:00')
+      let actualPaidDate: Date | null = null
+
+      // Salary carryover: if income on day 25-31, shift to next month's 1st
+      if (txType === 'credit' && occurredAt.getDate() >= 25) {
+        const userSettings = await prisma.appSettings.findUnique({ where: { userId }, select: { salaryCarryover: true } })
+        if (userSettings?.salaryCarryover) {
+          actualPaidDate = occurredAt
+          occurredAt = new Date(occurredAt.getFullYear(), occurredAt.getMonth() + 1, 1, 12, 0, 0)
+        }
+      }
 
       // Save new tags to UserTag table
       for (const tag of tags) {
@@ -190,6 +200,7 @@ export async function POST(request: NextRequest) {
           source,
           dedupeHash: fingerprint,
           occurredAt,
+          actualPaidDate,
         },
         include: { category: true },
       })

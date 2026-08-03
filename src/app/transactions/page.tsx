@@ -5,7 +5,7 @@ import { Search, ChevronDown, X, Plus, Trash2, Check, CalendarDays, AlertCircle,
 import { NEEDS_CATS, WANTS_CATS, INV_CATS, ALL_CATS, INCOME_CATS, GROUP_DEFAULT_CAT, catsForGroup } from '@/config/categories'
 
 interface Tx {
-  id: string; merchant: string; date: string; category: string; account: string
+  id: string; merchant: string; date: string; actualPaidDate?: string | null; category: string; account: string
   amount: number; type: 'income' | 'expense'; tags: string[]; wealthGroup: string | null
 }
 
@@ -462,9 +462,9 @@ export default function TransactionsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: '28%' }}>DATE &amp; MERCHANT</th>
-                <th style={{ width: '16%' }}>CATEGORY</th>
-                <th style={{ width: '14%' }}>ACCOUNT</th>
+                <th style={{ width: '32%' }}>DATE &amp; MERCHANT</th>
+                <th className="hidden sm:table-cell" style={{ width: '16%' }}>CATEGORY</th>
+                <th className="hidden sm:table-cell" style={{ width: '14%' }}>ACCOUNT</th>
                 <th style={{ width: '20%' }}>TAGS</th>
                 <th style={{ width: '14%', textAlign: 'right' }}>AMOUNT</th>
                 <th style={{ width: '8%' }}></th>
@@ -499,7 +499,12 @@ export default function TransactionsPage() {
                           <div style={{ minWidth: 0 }}>
                             <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{tx.merchant}</p>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 5, marginTop: 2, flexWrap: 'nowrap', overflow: 'hidden' }}>
-                              <p style={{ fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap', flexShrink: 0 }}>{tx.date}</p>
+                              <p style={{ fontSize: 11, color: 'var(--text-3)', whiteSpace: 'nowrap', flexShrink: 0 }}>
+                                {tx.date}
+                                {tx.actualPaidDate && (
+                                  <span style={{ color: 'var(--text-3)', opacity: 0.7 }}> (paid {tx.actualPaidDate})</span>
+                                )}
+                              </p>
                               {wgMeta && (
                                 <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: wgMeta.bg, color: wgMeta.color, border: `1px solid ${wgMeta.color}30`, whiteSpace: 'nowrap', flexShrink: 0 }}>
                                   {wgMeta.emoji} {wgMeta.label}
@@ -509,10 +514,10 @@ export default function TransactionsPage() {
                           </div>
                         </div>
                       </td>
-                      <td>
+                      <td className="hidden sm:table-cell">
                         <InlineCategory txId={tx.id} current={tx.category} wealthGroup={tx.wealthGroup} txType={tx.type} onSave={cat => updateTx(tx.id, { category: cat })} />
                       </td>
-                      <td><span style={{ fontSize: 13, color: 'var(--text-2)' }}>{tx.account}</span></td>
+                      <td className="hidden sm:table-cell"><span style={{ fontSize: 13, color: 'var(--text-2)' }}>{tx.account}</span></td>
                       <td><TagPills txId={tx.id} tags={tx.tags} onUpdate={tags => updateTx(tx.id, { tags })} /></td>
                       <td style={{ textAlign: 'right' }}>
                         {deletingId === tx.id ? (

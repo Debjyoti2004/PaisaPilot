@@ -72,7 +72,7 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
           <div
-            className="absolute right-0 z-50 animate-slide-down"
+            className="absolute left-0 sm:left-auto sm:right-0 z-50 animate-slide-down"
             style={{ top: '100%', marginTop: 6, width: 180, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}
           >
             {PERIODS.map(p => (
@@ -103,77 +103,96 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
 // ── Summary Cards ────────────────────────────────────────────────
 function SummaryCards({ data }: { data: DashboardData }) {
   const savings = data.income - data.expenses
-  const cards = [
+  const savingsRate = data.income > 0 ? Math.max(0, data.savingsRate) : 0
+
+  // Card definitions: variant controls visual style
+  type CardDef = {
+    label: string; value: string; sub: string; link: string
+    variant: 'dark' | 'green' | 'orange' | 'blue' | 'violet'
+    extra?: React.ReactNode
+  }
+  const cards: CardDef[] = [
     {
       label: 'Net Worth',
       value: data.netWorth ? fmtFull(data.netWorth.value) : 'Not set',
-      valueColor: data.netWorth ? 'var(--violet)' : 'var(--text-2)',
-      sub: data.netWorth ? 'Assets minus liabilities' : null,
+      sub: data.netWorth ? 'Assets minus liabilities' : 'Set up in Settings',
       link: '/settings#networth',
-      linkLabel: 'Set up in Settings →',
-      icon: <Settings size={14} />,
+      variant: 'dark',
+      extra: !data.netWorth ? (
+        <Link href="/settings#networth" style={{ fontSize: 11, color: '#a78bfa', marginTop: 8, display: 'block' }}>Set up →</Link>
+      ) : null,
     },
     {
       label: 'Income',
       value: fmtFull(data.income),
-      valueColor: 'var(--green)',
       sub: 'Credited this period',
       link: '/transactions',
-      icon: <ArrowUpRight size={14} />,
+      variant: 'green',
     },
     {
       label: 'Spending',
       value: fmtFull(data.expenses),
-      valueColor: 'var(--orange)',
       sub: 'Debited this period',
       link: '/transactions',
-      icon: <ArrowUpRight size={14} />,
+      variant: 'orange',
     },
     {
       label: 'Net savings',
       value: fmtFull(Math.abs(savings)),
-      valueColor: savings >= 0 ? 'var(--green)' : 'var(--orange)',
-      sub: savings >= 0
-        ? `${data.income > 0 ? Math.max(0, data.savingsRate) : 0}% savings rate`
-        : 'Spending exceeded income',
+      sub: savings >= 0 ? `${savingsRate}% savings rate` : 'Exceeded income',
       link: '/console',
-      icon: <ArrowUpRight size={14} />,
+      variant: 'blue',
     },
     ...(data.highestSpending ? [{
       label: 'Top spending',
       value: data.highestSpending.name,
-      valueColor: 'var(--violet)',
       sub: `${fmtFull(data.highestSpending.amount)} · ${data.highestSpending.pct}% of total`,
       link: '/transactions',
-      icon: <ArrowUpRight size={14} />,
+      variant: 'violet' as const,
     }] : []),
   ]
 
+  const styles: Record<CardDef['variant'], {
+    bg: string; border: string; topBorder?: string
+    labelColor: string; valueColor: string; subColor: string; iconColor: string
+  }> = {
+    dark:   { bg: '#111827', border: '#1f2937', labelColor: '#9ca3af', valueColor: '#f9fafb', subColor: '#6b7280', iconColor: '#9ca3af' },
+    green:  { bg: 'var(--surface)', border: 'var(--border)', topBorder: '#22c55e', labelColor: 'var(--text-3)', valueColor: '#16a34a', subColor: 'var(--text-3)', iconColor: 'var(--text-3)' },
+    orange: { bg: 'var(--surface)', border: 'var(--border)', topBorder: '#f97316', labelColor: 'var(--text-3)', valueColor: '#ea580c', subColor: 'var(--text-3)', iconColor: 'var(--text-3)' },
+    blue:   { bg: 'var(--surface)', border: 'var(--border)', topBorder: '#3b82f6', labelColor: 'var(--text-3)', valueColor: savings >= 0 ? '#2563eb' : '#ea580c', subColor: 'var(--text-3)', iconColor: 'var(--text-3)' },
+    violet: { bg: 'var(--violet)', border: 'var(--violet)', labelColor: 'rgba(255,255,255,0.7)', valueColor: '#fff', subColor: 'rgba(255,255,255,0.65)', iconColor: 'rgba(255,255,255,0.7)' },
+  }
+
   return (
-    <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-      {cards.map((c, i) => (
-        <div key={c.label} className={`card p-4${i === cards.length - 1 && cards.length % 4 !== 0 ? ' lg:col-span-4' : ''}`}>
-          <div className="flex items-center justify-between mb-2">
-            <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-              {c.label}
+    <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+      {cards.map((c) => {
+        const s = styles[c.variant]
+        return (
+          <div key={c.label} style={{
+            background: s.bg,
+            border: `1px solid ${s.border}`,
+            borderRadius: 14,
+            borderTop: s.topBorder ? `3px solid ${s.topBorder}` : `1px solid ${s.border}`,
+            padding: '12px 14px 14px',
+            display: 'flex', flexDirection: 'column', gap: 0,
+            minHeight: 110,
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+              <p style={{ fontSize: 11, fontWeight: 600, color: s.labelColor, textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                {c.label}
+              </p>
+              <Link href={c.link} style={{ color: s.iconColor, display: 'flex', opacity: 0.8 }}>
+                <ArrowUpRight size={14} />
+              </Link>
+            </div>
+            <p className="num" style={{ fontSize: 22, fontWeight: 800, color: s.valueColor, lineHeight: 1.15, wordBreak: 'break-all', flex: 1 }}>
+              {c.value}
             </p>
-            <Link href={c.link} style={{ color: 'var(--text-3)', display: 'flex' }}>
-              {c.icon}
-            </Link>
+            <p style={{ fontSize: 11, color: s.subColor, marginTop: 6, lineHeight: 1.3 }}>{c.sub}</p>
+            {c.extra}
           </div>
-          <p className="num summary-value" style={{ fontSize: 22, fontWeight: 800, color: c.valueColor, lineHeight: 1.15, wordBreak: 'break-all' }}>
-            {c.value}
-          </p>
-          {c.sub && (
-            <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4, lineHeight: 1.3 }}>{c.sub}</p>
-          )}
-          {!data.netWorth && c.label === 'Net Worth' && (
-            <Link href="/settings#networth">
-              <p style={{ fontSize: 11, color: 'var(--violet)', marginTop: 4 }}>Set up →</p>
-            </Link>
-          )}
-        </div>
-      ))}
+        )
+      })}
     </div>
   )
 }
@@ -520,8 +539,8 @@ export default function DashboardPage() {
       {/* Loading skeleton */}
       {loading && (
         <div className="space-y-4">
-          <div className="grid gap-3 grid-cols-2 lg:grid-cols-4">
-            {[1,2,3,4].map(i => <div key={i} className="card skeleton" style={{ height: 100 }} />)}
+          <div className="grid gap-3 grid-cols-2 lg:grid-cols-5">
+            {[1,2,3,4,5].map(i => <div key={i} className="card skeleton" style={{ height: 130 }} />)}
           </div>
           <div className="card skeleton" style={{ height: 280 }} />
           <div className="card skeleton" style={{ height: 200 }} />
