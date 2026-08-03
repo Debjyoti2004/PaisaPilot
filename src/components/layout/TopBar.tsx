@@ -145,6 +145,20 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
   const [type, setType] = useState<EntryType>('expense')
   const [group, setGroup] = useState<WealthGroup | null>(null)
   const [amount, setAmount] = useState('')
+
+  function handleAmountChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value.replace(/,/g, '').replace(/[^0-9.]/g, '')
+    const parts = raw.split('.')
+    setAmount(parts.length > 1 ? parts[0] + '.' + parts.slice(1).join('') : parts[0])
+  }
+
+  function fmtAmountDisplay(val: string) {
+    if (!val) return ''
+    const [int, dec] = val.split('.')
+    const fmt = (parseInt(int, 10) || 0).toLocaleString('en-IN')
+    return dec !== undefined ? `${fmt}.${dec}` : fmt
+  }
+
   const [merchant, setMerchant] = useState('')
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [category, setCategory] = useState('')
@@ -258,8 +272,8 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Amount</label>
               <div className="relative">
                 <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', fontSize: 14, fontWeight: 500 }}>₹</span>
-                <input type="number" min="0" step="0.01" placeholder="0.00" value={amount}
-                  onChange={e => setAmount(e.target.value)} className="form-input" style={{ paddingLeft: 28 }} />
+                <input type="text" inputMode="decimal" placeholder="0" value={fmtAmountDisplay(amount)}
+                  onChange={handleAmountChange} className="form-input" style={{ paddingLeft: 28 }} />
               </div>
             </div>
             <div>

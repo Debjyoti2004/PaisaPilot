@@ -191,6 +191,19 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
   const [saving, setSaving] = useState(false)
   const set = (k: keyof EditState, v: string | null) => setFields(f => ({ ...f, [k]: v ?? '' }))
 
+  function handleAmountChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value.replace(/,/g, '').replace(/[^0-9.]/g, '')
+    const parts = raw.split('.')
+    set('amount', parts.length > 1 ? parts[0] + '.' + parts.slice(1).join('') : parts[0])
+  }
+
+  function fmtAmountDisplay(val: string) {
+    if (!val) return ''
+    const [int, dec] = val.split('.')
+    const fmt = (parseInt(int, 10) || 0).toLocaleString('en-IN')
+    return dec !== undefined ? `${fmt}.${dec}` : fmt
+  }
+
   function setGroup(g: string | null) {
     setFields(f => ({
       ...f,
@@ -224,7 +237,7 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Amount (₹)</label>
-          <input type="number" className="form-input" style={{ height: 36, fontSize: 13 }} value={fields.amount} onChange={e => set('amount', e.target.value)} />
+          <input type="text" inputMode="decimal" className="form-input" style={{ height: 36, fontSize: 13 }} value={fmtAmountDisplay(fields.amount)} onChange={handleAmountChange} />
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Date</label>
