@@ -348,11 +348,7 @@ export default function TransactionsPage() {
     } finally { setLoading(false) }
   }, [])
 
-  useEffect(() => {
-    fetch('/api/dashboard?period=all-time')
-      .then(r => r.json()).then(d => setPeriod((d.savedPeriod ?? 'all-time') as Period))
-      .catch(() => setPeriod('all-time'))
-  }, [])
+  useEffect(() => { setPeriod('all-time') }, [])
 
   useEffect(() => {
     if (period === null) return
@@ -369,7 +365,6 @@ export default function TransactionsPage() {
 
   const handlePeriodChange = (p: Period) => {
     setPeriod(p); setPage(1)
-    fetch(`/api/dashboard?period=${p}`).catch(() => {})
   }
 
   const updateTx = (id: string, updates: Partial<Tx>) => setTxns(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
