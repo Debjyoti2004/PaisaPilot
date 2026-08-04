@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, X, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
 
 interface Rule { id: string; whenText: string; thenText: string; enabled: boolean; createdAt: string }
@@ -106,73 +107,80 @@ export default function RulesPage() {
         </button>
       </div>
 
-      {/* Add rule form */}
-      {showAdd && (
-        <div className="card p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>New categorization rule</h3>
-            <button className="btn-ghost" style={{ padding: 6 }} onClick={() => setShowAdd(false)}><X size={15} /></button>
-          </div>
-          {/* When */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
-              When merchant contains…
-            </label>
-            <input type="text" className="form-input" placeholder='e.g. "swiggy", "zomato"'
-              value={when} onChange={e => setWhen(e.target.value)}
-              onKeyDown={e => e.key === 'Enter' && addRule()} />
-          </div>
-
-          {/* Group picker */}
-          <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 8 }}>
-              Then categorize as… (choose group)
-            </label>
-            <div className="flex gap-2">
-              {(Object.keys(GROUP_META) as WealthGroup[]).map(g => {
-                const meta = GROUP_META[g]
-                const active = group === g
-                return (
-                  <button key={g} onClick={() => setGroup(g)} style={{
-                    flex: 1, padding: '8px 4px', borderRadius: 10, fontSize: 12, fontWeight: active ? 700 : 500,
-                    border: `1.5px solid ${active ? meta.color : 'var(--border)'}`,
-                    background: active ? `${meta.color}18` : 'transparent',
-                    color: active ? meta.color : 'var(--text-2)',
-                    cursor: 'pointer', transition: 'all .15s',
-                  }}>
-                    <div style={{ fontSize: 16, marginBottom: 2 }}>{meta.emoji}</div>
-                    {meta.label}
-                  </button>
-                )
-              })}
+      {/* Add rule modal */}
+      {showAdd && typeof document !== 'undefined' && createPortal(
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowAdd(false)}>
+          <div className="modal-box" style={{ maxWidth: 480 }}>
+            <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <h3 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-1)' }}>New categorization rule</h3>
+              <button className="btn-ghost" style={{ padding: 8 }} onClick={() => setShowAdd(false)}><X size={16} /></button>
             </div>
-          </div>
+            <div className="px-6 py-4 space-y-4">
+              {/* When */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+                  When merchant contains…
+                </label>
+                <input type="text" className="form-input" placeholder='e.g. "swiggy", "zomato"'
+                  value={when} onChange={e => setWhen(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addRule()} autoFocus />
+              </div>
 
-          {/* Subcategory */}
-          {group && (
-            <div>
-              <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
-                Subcategory
-              </label>
-              <select className="form-select" value={then} onChange={e => { setThen(e.target.value); setCustomInput('') }}>
-                {[...BASE_GROUP_CATS[group], ...customCats[group]].map(c => (
-                  <option key={c} value={c}>{c}</option>
-                ))}
-                <option value={CUSTOM_SENTINEL}>✏️ New custom…</option>
-              </select>
-              {then === CUSTOM_SENTINEL && (
-                <input type="text" className="form-input" style={{ marginTop: 8 }}
-                  placeholder="Type category name (e.g. NT50, ELSS)"
-                  value={customInput} onChange={e => setCustomInput(e.target.value)} autoFocus />
+              {/* Group picker */}
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 8 }}>
+                  Then categorize as… (choose group)
+                </label>
+                <div className="flex gap-2">
+                  {(Object.keys(GROUP_META) as WealthGroup[]).map(g => {
+                    const meta = GROUP_META[g]
+                    const active = group === g
+                    return (
+                      <button key={g} onClick={() => setGroup(g)} style={{
+                        flex: 1, padding: '10px 4px', borderRadius: 10, fontSize: 12, fontWeight: active ? 700 : 500,
+                        border: `1.5px solid ${active ? meta.color : 'var(--border)'}`,
+                        background: active ? `${meta.color}18` : 'transparent',
+                        color: active ? meta.color : 'var(--text-2)',
+                        cursor: 'pointer', transition: 'all .15s',
+                      }}>
+                        <div style={{ fontSize: 18, marginBottom: 4 }}>{meta.emoji}</div>
+                        {meta.label}
+                      </button>
+                    )
+                  })}
+                </div>
+              </div>
+
+              {/* Subcategory */}
+              {group && (
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>
+                    Subcategory
+                  </label>
+                  <div className="relative">
+                    <select className="form-select" value={then} onChange={e => { setThen(e.target.value); setCustomInput('') }}>
+                      {[...BASE_GROUP_CATS[group], ...customCats[group]].map(c => (
+                        <option key={c} value={c}>{c}</option>
+                      ))}
+                      <option value={CUSTOM_SENTINEL}>✏️ New custom…</option>
+                    </select>
+                  </div>
+                  {then === CUSTOM_SENTINEL && (
+                    <input type="text" className="form-input" style={{ marginTop: 8 }}
+                      placeholder="Type category name (e.g. NT50, ELSS)"
+                      value={customInput} onChange={e => setCustomInput(e.target.value)} autoFocus />
+                  )}
+                </div>
               )}
+              {err && <p style={{ fontSize: 13, color: 'var(--red)', background: 'var(--red-bg)', padding: '10px 14px', borderRadius: 8 }}>{err}</p>}
             </div>
-          )}
-          {err && <p style={{ fontSize: 13, color: 'var(--red)' }}>{err}</p>}
-          <div className="flex gap-3 justify-end">
-            <button className="btn-secondary" onClick={() => setShowAdd(false)}>Cancel</button>
-            <button className="btn-primary" onClick={addRule} disabled={saving}>{saving ? 'Saving…' : 'Add rule'}</button>
+            <div className="flex gap-3 px-6 py-4 justify-end" style={{ borderTop: '1px solid var(--border)' }}>
+              <button className="btn-secondary" onClick={() => { setShowAdd(false); setWhen(''); setGroup(null); setThen(''); setErr('') }}>Cancel</button>
+              <button className="btn-primary" onClick={addRule} disabled={saving}>{saving ? 'Saving…' : 'Add rule'}</button>
+            </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {loading && <div className="card skeleton" style={{ height: 160 }} />}
