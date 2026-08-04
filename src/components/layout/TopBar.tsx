@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { Cloud, Upload, Plus, X, Calendar, Tag, ChevronDown, Bell } from 'lucide-react'
 import NotificationPanel from './NotificationPanel'
 import { INCOME_CATS } from '@/config/categories'
+import { useViewMode } from '@/contexts/ViewContext'
 
 interface TopBarProps {
   title: string
@@ -13,6 +14,7 @@ interface TopBarProps {
 }
 
 export function TopBar({ title, subtitle }: TopBarProps) {
+  const { isViewing, revokedMsg } = useViewMode()
   const [addOpen, setAddOpen] = useState(false)
   const [notifOpen, setNotifOpen] = useState(false)
   const [unread, setUnread] = useState(0)
@@ -68,32 +70,36 @@ export function TopBar({ title, subtitle }: TopBarProps) {
             )}
           </button>
 
-          {/* Drive sync — desktop only */}
-          <button
-            className="btn-secondary topbar-desktop-btn"
-            onClick={() => window.location.href = '/settings#drive'}
-          >
-            <Cloud size={15} style={{ color: 'var(--text-2)' }} />
-            <span className="top-bar-label">Drive sync</span>
-          </button>
+          {!isViewing && (
+            <>
+              {/* Drive sync — desktop only */}
+              <button
+                className="btn-secondary topbar-desktop-btn"
+                onClick={() => window.location.href = '/settings#drive'}
+              >
+                <Cloud size={15} style={{ color: 'var(--text-2)' }} />
+                <span className="top-bar-label">Drive sync</span>
+              </button>
 
-          {/* Import — desktop only */}
-          <button
-            className="btn-secondary topbar-desktop-btn"
-            onClick={() => window.location.href = '/documents?import=1'}
-          >
-            <Upload size={15} style={{ color: 'var(--text-2)' }} />
-            <span className="top-bar-label">Import</span>
-          </button>
+              {/* Import — desktop only */}
+              <button
+                className="btn-secondary topbar-desktop-btn"
+                onClick={() => window.location.href = '/documents?import=1'}
+              >
+                <Upload size={15} style={{ color: 'var(--text-2)' }} />
+                <span className="top-bar-label">Import</span>
+              </button>
 
-          {/* Add entry */}
-          <button
-            className="btn-primary topbar-add-btn"
-            onClick={() => setAddOpen(true)}
-          >
-            <Plus size={16} />
-            <span className="top-bar-label">Add entry</span>
-          </button>
+              {/* Add entry */}
+              <button
+                className="btn-primary topbar-add-btn"
+                onClick={() => setAddOpen(true)}
+              >
+                <Plus size={16} />
+                <span className="top-bar-label">Add entry</span>
+              </button>
+            </>
+          )}
         </div>
       </div>
 
@@ -101,6 +107,21 @@ export function TopBar({ title, subtitle }: TopBarProps) {
       <NotificationPanel isOpen={notifOpen} onClose={() => setNotifOpen(false)} />
 
       {addOpen && <AddEntryModal onClose={() => setAddOpen(false)} />}
+
+      {revokedMsg && (
+        <div
+          style={{
+            position: 'fixed', top: 72, left: '50%', transform: 'translateX(-50%)', zIndex: 200,
+            background: '#1e1e2e', color: '#fff', padding: '12px 20px', borderRadius: 12,
+            fontSize: 14, fontWeight: 500, boxShadow: '0 4px 24px rgba(0,0,0,0.35)',
+            display: 'flex', alignItems: 'center', gap: 10, maxWidth: 'calc(100vw - 32px)',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <span>⚠️</span>
+          <span>{revokedMsg}</span>
+        </div>
+      )}
     </>
   )
 }

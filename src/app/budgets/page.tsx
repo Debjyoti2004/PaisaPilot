@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, Trash2, Edit2, ChevronDown } from 'lucide-react'
+import { useViewMode } from '@/contexts/ViewContext'
 
 interface Budget { id: string; category: string; monthlyLimit: number; active: boolean; spent: number }
 
@@ -105,8 +106,8 @@ function BudgetModal({ existing, usedCategories, onClose, onSaved }: {
 }
 
 // ── Budget Card ─────────────────────────────────────────────────────
-function BudgetCard({ b, onEdit, onDelete, onToggle }: {
-  b: Budget; onEdit: (b: Budget) => void; onDelete: (id: string) => void; onToggle: (id: string, active: boolean) => void
+function BudgetCard({ b, onEdit, onDelete, onToggle, readOnly }: {
+  b: Budget; onEdit: (b: Budget) => void; onDelete: (id: string) => void; onToggle: (id: string, active: boolean) => void; readOnly?: boolean
 }) {
   const [delConfirm, setDelConfirm] = useState(false)
   const pct   = b.monthlyLimit > 0 ? Math.min(100, (b.spent / b.monthlyLimit) * 100) : 0
@@ -125,17 +126,19 @@ function BudgetCard({ b, onEdit, onDelete, onToggle }: {
             {b.active ? 'Active' : 'Paused'} · monthly
           </p>
         </div>
-        <div className="flex gap-1">
-          <button className="btn-ghost" style={{ padding: 7 }} onClick={() => onEdit(b)}><Edit2 size={13} /></button>
-          {delConfirm ? (
-            <div className="flex gap-1">
-              <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11, color: 'var(--red)' }} onClick={() => onDelete(b.id)}>Delete</button>
-              <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11 }} onClick={() => setDelConfirm(false)}>Cancel</button>
-            </div>
-          ) : (
-            <button className="btn-ghost" style={{ padding: 7 }} onClick={() => setDelConfirm(true)}><Trash2 size={13} /></button>
-          )}
-        </div>
+        {!readOnly && (
+          <div className="flex gap-1">
+            <button className="btn-ghost" style={{ padding: 7 }} onClick={() => onEdit(b)}><Edit2 size={13} /></button>
+            {delConfirm ? (
+              <div className="flex gap-1">
+                <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11, color: 'var(--red)' }} onClick={() => onDelete(b.id)}>Delete</button>
+                <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11 }} onClick={() => setDelConfirm(false)}>Cancel</button>
+              </div>
+            ) : (
+              <button className="btn-ghost" style={{ padding: 7 }} onClick={() => setDelConfirm(true)}><Trash2 size={13} /></button>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="flex items-end justify-between mb-2">
@@ -161,12 +164,14 @@ function BudgetCard({ b, onEdit, onDelete, onToggle }: {
             : `₹${rem.toLocaleString('en-IN')} remaining`
           }
         </p>
-        <button
-          className="btn-ghost" style={{ padding: '4px 10px', fontSize: 11, color: b.active ? 'var(--text-3)' : 'var(--violet)' }}
-          onClick={() => onToggle(b.id, !b.active)}
-        >
-          {b.active ? 'Pause' : 'Resume'}
-        </button>
+        {!readOnly && (
+          <button
+            className="btn-ghost" style={{ padding: '4px 10px', fontSize: 11, color: b.active ? 'var(--text-3)' : 'var(--violet)' }}
+            onClick={() => onToggle(b.id, !b.active)}
+          >
+            {b.active ? 'Pause' : 'Resume'}
+          </button>
+        )}
       </div>
     </div>
   )
@@ -174,21 +179,24 @@ function BudgetCard({ b, onEdit, onDelete, onToggle }: {
 
 // ── Main Page ────────────────────────────────────────────────────────
 export default function BudgetsPage() {
+  const { isViewing, viewingUser, accessRevoked } = useViewMode()
   const [budgets, setBudgets]   = useState<Budget[]>([])
   const [loading, setLoading]   = useState(true)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing]   = useState<Budget | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (viewAs?: string, ownerName?: string) => {
     setLoading(true)
     try {
-      const res = await fetch('/api/budgets')
+      const params = viewAs ? `?viewAs=${viewAs}` : ''
+      const res = await fetch(`/api/budgets${params}`)
+      if (res.status === 403) { accessRevoked(ownerName ?? 'user'); return }
       const d = await res.json()
       setBudgets(d.budgets ?? [])
     } catch {} finally { setLoading(false) }
-  }, [])
+  }, [accessRevoked])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(viewingUser?.id, viewingUser?.name) }, [load, viewingUser?.id])
 
   async function deleteBudget(id: string) {
     await fetch(`/api/budgets?id=${id}`, { method: 'DELETE' })
@@ -214,9 +222,11 @@ export default function BudgetsPage() {
           <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)' }}>Budgets</h2>
           <p style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 4 }}>Set monthly limits per category and track how you&apos;re doing.</p>
         </div>
-        <button className="btn-primary" style={{ gap: 6, fontSize: 13, padding: '9px 16px', flexShrink: 0 }} onClick={() => { setEditing(null); setModalOpen(true) }}>
-          <Plus size={15} />Set budget
-        </button>
+        {!isViewing && (
+          <button className="btn-primary" style={{ gap: 6, fontSize: 13, padding: '9px 16px', flexShrink: 0 }} onClick={() => { setEditing(null); setModalOpen(true) }}>
+            <Plus size={15} />Set budget
+          </button>
+        )}
       </div>
 
       {/* Over-budget alert */}
@@ -260,10 +270,10 @@ export default function BudgetsPage() {
       {!loading && budgets.length > 0 && (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {active.map(b => (
-            <BudgetCard key={b.id} b={b} onEdit={b => { setEditing(b); setModalOpen(true) }} onDelete={deleteBudget} onToggle={toggleBudget} />
+            <BudgetCard key={b.id} b={b} onEdit={b => { setEditing(b); setModalOpen(true) }} onDelete={deleteBudget} onToggle={toggleBudget} readOnly={isViewing} />
           ))}
           {budgets.filter(b => !b.active).map(b => (
-            <BudgetCard key={b.id} b={b} onEdit={b => { setEditing(b); setModalOpen(true) }} onDelete={deleteBudget} onToggle={toggleBudget} />
+            <BudgetCard key={b.id} b={b} onEdit={b => { setEditing(b); setModalOpen(true) }} onDelete={deleteBudget} onToggle={toggleBudget} readOnly={isViewing} />
           ))}
         </div>
       )}
@@ -276,13 +286,15 @@ export default function BudgetsPage() {
           <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4, textAlign: 'center', maxWidth: 300 }}>
             Set monthly limits for Groceries, Dining, Shopping and more. You&apos;ll get alerts when you approach the limit.
           </p>
-          <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => { setEditing(null); setModalOpen(true) }}>
-            <Plus size={15} />Set your first budget
-          </button>
+          {!isViewing && (
+            <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => { setEditing(null); setModalOpen(true) }}>
+              <Plus size={15} />Set your first budget
+            </button>
+          )}
         </div>
       )}
 
-      {modalOpen && (
+      {!isViewing && modalOpen && (
         <BudgetModal
           existing={editing}
           usedCategories={usedCats}

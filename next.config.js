@@ -3,7 +3,7 @@ const nextConfig = {
   output: 'standalone',
   eslint: { ignoreDuringBuilds: true },
   experimental: {
-    serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse'],
+    serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse', 'nodemailer'],
   },
   webpack: (config, { isServer }) => {
     if (!isServer) {

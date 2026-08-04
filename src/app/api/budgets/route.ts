@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
+import { getEffectiveUserId } from '@/lib/family'
 
 export const dynamic = 'force-dynamic'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const userId = await requireUserId()
+    const userId = await getEffectiveUserId(request, { allowViewAs: true })
 
     // Get all budgets
     const budgets = await prisma.userBudget.findMany({ where: { userId }, orderBy: { category: 'asc' } })
@@ -37,6 +38,8 @@ export async function GET() {
 
     return NextResponse.json({ budgets: result, month: `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}` })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -57,6 +60,8 @@ export async function POST(request: NextRequest) {
     })
     return NextResponse.json({ budget }, { status: 201 })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -82,6 +87,8 @@ export async function PATCH(request: NextRequest) {
     })
     return NextResponse.json({ budget })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -101,6 +108,8 @@ export async function DELETE(request: NextRequest) {
     await prisma.userBudget.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

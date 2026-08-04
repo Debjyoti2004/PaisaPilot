@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, X, Target, TrendingUp, Trash2 } from 'lucide-react'
+import { useViewMode } from '@/contexts/ViewContext'
 
 interface Goal {
   id: string; name: string; icon: string; color: string
@@ -155,8 +156,8 @@ function AddSavingsModal({ goal, onClose, onSaved }: { goal: Goal; onClose: () =
 }
 
 // ── Goal Card ────────────────────────────────────────────────────────
-function GoalCard({ goal, onAddSavings, onDelete }: {
-  goal: Goal; onAddSavings: (g: Goal) => void; onDelete: (id: string) => void
+function GoalCard({ goal, onAddSavings, onDelete, readOnly }: {
+  goal: Goal; onAddSavings: (g: Goal) => void; onDelete: (id: string) => void; readOnly?: boolean
 }) {
   const [delConfirm, setDelConfirm] = useState(false)
   const pct = Math.min(100, goal.percentComplete)
@@ -177,19 +178,21 @@ function GoalCard({ goal, onAddSavings, onDelete }: {
             {overdue  && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 99, background: 'var(--red-bg)', color: 'var(--red)', border: '1px solid #fecaca' }}>Overdue</span>}
           </div>
         </div>
-        <div className="flex gap-1">
-          <button className="btn-ghost" style={{ padding: 7 }} onClick={() => onAddSavings(goal)}>
-            <Plus size={14} />
-          </button>
-          {delConfirm ? (
-            <div className="flex gap-1">
-              <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11, color: 'var(--red)' }} onClick={() => onDelete(goal.id)}>Delete</button>
-              <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11 }} onClick={() => setDelConfirm(false)}>Cancel</button>
-            </div>
-          ) : (
-            <button className="btn-ghost" style={{ padding: 7 }} onClick={() => setDelConfirm(true)}><Trash2 size={14} /></button>
-          )}
-        </div>
+        {!readOnly && (
+          <div className="flex gap-1">
+            <button className="btn-ghost" style={{ padding: 7 }} onClick={() => onAddSavings(goal)}>
+              <Plus size={14} />
+            </button>
+            {delConfirm ? (
+              <div className="flex gap-1">
+                <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11, color: 'var(--red)' }} onClick={() => onDelete(goal.id)}>Delete</button>
+                <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11 }} onClick={() => setDelConfirm(false)}>Cancel</button>
+              </div>
+            ) : (
+              <button className="btn-ghost" style={{ padding: 7 }} onClick={() => setDelConfirm(true)}><Trash2 size={14} /></button>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Progress */}
@@ -218,18 +221,24 @@ function GoalCard({ goal, onAddSavings, onDelete }: {
 
 // ── Main Page ────────────────────────────────────────────────────────
 export default function GoalsPage() {
+  const { isViewing, viewingUser, accessRevoked } = useViewMode()
   const [goals, setGoals]         = useState<Goal[]>([])
   const [loading, setLoading]     = useState(true)
   const [addOpen, setAddOpen]     = useState(false)
   const [addingTo, setAddingTo]   = useState<Goal | null>(null)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (viewAs?: string, ownerName?: string) => {
     setLoading(true)
-    try { const r = await fetch('/api/goals'); const d = await r.json(); setGoals(d.goals ?? []) }
-    catch {} finally { setLoading(false) }
-  }, [])
+    try {
+      const params = viewAs ? `?viewAs=${viewAs}` : ''
+      const r = await fetch(`/api/goals${params}`)
+      if (r.status === 403) { accessRevoked(ownerName ?? 'user'); return }
+      const d = await r.json()
+      setGoals(d.goals ?? [])
+    } catch {} finally { setLoading(false) }
+  }, [accessRevoked])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(viewingUser?.id, viewingUser?.name) }, [load, viewingUser?.id])
 
   async function deleteGoal(id: string) {
     await fetch(`/api/goals?id=${id}`, { method: 'DELETE' })
@@ -248,9 +257,11 @@ export default function GoalsPage() {
           <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)' }}>Goals</h2>
           <p style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 4 }}>Track your financial milestones — travel, emergency fund, gadgets, and more.</p>
         </div>
-        <button className="btn-primary" style={{ gap: 6, fontSize: 13, padding: '9px 16px', flexShrink: 0 }} onClick={() => setAddOpen(true)}>
-          <Plus size={15} />New goal
-        </button>
+        {!isViewing && (
+          <button className="btn-primary" style={{ gap: 6, fontSize: 13, padding: '9px 16px', flexShrink: 0 }} onClick={() => setAddOpen(true)}>
+            <Plus size={15} />New goal
+          </button>
+        )}
       </div>
 
       {/* Summary row */}
@@ -289,7 +300,7 @@ export default function GoalsPage() {
       {!loading && goals.length > 0 && (
         <div className="grid sm:grid-cols-2 gap-4">
           {goals.map(g => (
-            <GoalCard key={g.id} goal={g} onAddSavings={setAddingTo} onDelete={deleteGoal} />
+            <GoalCard key={g.id} goal={g} onAddSavings={setAddingTo} onDelete={deleteGoal} readOnly={isViewing} />
           ))}
         </div>
       )}
@@ -301,14 +312,16 @@ export default function GoalsPage() {
           <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4, textAlign: 'center', maxWidth: 300 }}>
             Set a target for your next vacation, emergency fund, or gadget — and watch your progress.
           </p>
-          <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => setAddOpen(true)}>
-            <Plus size={15} />Create first goal
-          </button>
+          {!isViewing && (
+            <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => setAddOpen(true)}>
+              <Plus size={15} />Create first goal
+            </button>
+          )}
         </div>
       )}
 
-      {addOpen    && <AddGoalModal onClose={() => setAddOpen(false)} onSaved={load} />}
-      {addingTo   && <AddSavingsModal goal={addingTo} onClose={() => setAddingTo(null)} onSaved={load} />}
+      {!isViewing && addOpen    && <AddGoalModal onClose={() => setAddOpen(false)} onSaved={load} />}
+      {!isViewing && addingTo   && <AddSavingsModal goal={addingTo} onClose={() => setAddingTo(null)} onSaved={load} />}
     </div>
   )
 }

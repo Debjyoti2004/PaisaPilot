@@ -3,8 +3,9 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession, signOut } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
-import { Save, Cloud, Trash2, AlertCircle, Check, FolderOpen, Search, X } from 'lucide-react'
+import { Save, Cloud, Trash2, AlertCircle, Check, FolderOpen, Search, X, Users, Link, Eye, LogOut, UserMinus } from 'lucide-react'
 import { DownloadMenu } from '@/components/DownloadMenu'
+import { useViewMode } from '@/contexts/ViewContext'
 
 interface Settings {
   expectedSalary: number; savingsFloor: number; emailReports: boolean; reportEmail: string
@@ -167,6 +168,11 @@ export default function SettingsPage() {
         <DriveSection settings={settings} onSave={save} saving={saving} />
       </Section>
 
+      {/* Family & Sharing */}
+      <Section id="family" title="Family & Sharing" desc="Invite family members to view your financial data in read-only mode.">
+        <FamilySection />
+      </Section>
+
       {/* Danger zone */}
       <Section title="Danger zone">
         <div className="space-y-4">
@@ -200,6 +206,390 @@ export default function SettingsPage() {
           </div>
         </div>
       </Section>
+    </div>
+  )
+}
+
+// ── Family Section ────────────────────────────────────────────────────
+interface FamilyMemberData {
+  id: string; role: string
+  user: { id: string; name: string | null; email: string | null; image: string | null }
+}
+interface InviteData { id: string; token: string; label: string | null; email: string | null; expiresAt: string }
+interface FamilyData { id: string; name: string; members: FamilyMemberData[]; invites: InviteData[] }
+
+function MemberAvatar({ user, size = 36, ring = false }: { user: { name: string | null; email: string | null; image: string | null }; size?: number; ring?: boolean }) {
+  const initial = (user.name || user.email || '?')[0].toUpperCase()
+  const style: React.CSSProperties = {
+    width: size, height: size, borderRadius: '50%', flexShrink: 0,
+    ...(ring ? { outline: '2.5px solid var(--violet)', outlineOffset: 2 } : {}),
+  }
+  if (user.image) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={user.image} alt="" style={{ ...style, objectFit: 'cover' }} />
+  }
+  return (
+    <div style={{ ...style, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--violet-bg)', border: '1px solid var(--violet-border)' }}>
+      <span style={{ fontSize: size * 0.33, fontWeight: 700, color: 'var(--violet)' }}>{initial}</span>
+    </div>
+  )
+}
+
+function FamilySection() {
+  const { data: session } = useSession()
+  const { startViewing, stopViewing, viewingUser } = useViewMode()
+  const [family, setFamily] = useState<FamilyData | null>(null)
+  const [myRole, setMyRole] = useState<string | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [creating, setCreating] = useState(false)
+  const [familyName, setFamilyName] = useState('My Family')
+  const [leaving, setLeaving] = useState(false)
+
+  // Invite modal state
+  const [inviteOpen, setInviteOpen] = useState(false)
+  const [inviteEmail, setInviteEmail] = useState('')
+  const [inviting, setInviting] = useState(false)
+  const [inviteError, setInviteError] = useState('')
+  const [inviteToast, setInviteToast] = useState('')
+
+  const myId = (session?.user as { id?: string })?.id
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const r = await fetch('/api/family')
+      const d = await r.json()
+      setFamily(d.family)
+      setMyRole(d.myRole ?? null)
+    } catch {} finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { load() }, [load])
+
+  async function createFamily() {
+    setCreating(true)
+    try {
+      await fetch('/api/family', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: familyName }) })
+      load()
+    } catch {} finally { setCreating(false) }
+  }
+
+  async function sendInvite() {
+    if (!inviteEmail.trim()) { setInviteError('Enter an email address'); return }
+    setInviting(true); setInviteError('')
+    try {
+      const res = await fetch('/api/family/invite', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: inviteEmail.trim() }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setInviteError(d.error || 'Failed to send'); return }
+      closeInviteModal()
+      load()
+      setInviteToast(`Invite sent to ${d.email}`)
+      setTimeout(() => setInviteToast(''), 5000)
+    } catch { setInviteError('Network error') } finally { setInviting(false) }
+  }
+
+  function closeInviteModal() {
+    setInviteOpen(false); setInviteEmail(''); setInviteError(''); setInviteSuccess('')
+  }
+
+  async function cancelInvite(inviteId: string) {
+    await fetch('/api/family/invite', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ inviteId }) })
+    load()
+  }
+
+  async function removeMember(memberId: string) {
+    await fetch('/api/family/members', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ memberId }) })
+    load()
+  }
+
+  async function leaveFamily() {
+    setLeaving(true)
+    try {
+      await fetch('/api/family', { method: 'DELETE' })
+      stopViewing()
+      load()
+    } catch {} finally { setLeaving(false) }
+  }
+
+  if (loading) return <div className="skeleton rounded-xl" style={{ height: 80 }} />
+
+  if (!family) {
+    return (
+      <div className="space-y-4">
+        <div className="p-4 rounded-xl flex items-start gap-3" style={{ background: 'var(--violet-bg)', border: '1px solid var(--violet-border)' }}>
+          <Users size={16} style={{ color: 'var(--violet)', marginTop: 2, flexShrink: 0 }} />
+          <p style={{ fontSize: 13, color: 'var(--text-2)', lineHeight: 1.5 }}>
+            Create a family group to let trusted people (spouse, parents, CA) view your data in read-only mode. They can never edit or delete anything.
+          </p>
+        </div>
+        <div className="flex gap-3 items-end">
+          <div className="flex-1">
+            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Group name</label>
+            <input type="text" className="form-input" value={familyName} onChange={e => setFamilyName(e.target.value)} placeholder="My Family" style={{ maxWidth: 260 }} />
+          </div>
+          <button className="btn-primary" style={{ gap: 7 }} onClick={createFamily} disabled={creating}>
+            <Users size={14} />
+            {creating ? 'Creating…' : 'Create family'}
+          </button>
+        </div>
+      </div>
+    )
+  }
+
+  const viewedMember = viewingUser ? family.members.find(m => m.user.id === viewingUser.id) : null
+
+  return (
+    <div className="space-y-5">
+      {/* Active view mode banner — prominent when viewing someone */}
+      {viewingUser && viewedMember && (
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: 12, padding: '12px 16px',
+          background: 'var(--violet)', borderRadius: 14,
+          boxShadow: '0 2px 12px rgba(101,88,211,0.25)',
+        }}>
+          <div style={{ position: 'relative', flexShrink: 0 }}>
+            <MemberAvatar user={viewedMember.user} size={36} />
+            <span style={{
+              position: 'absolute', bottom: -2, right: -2,
+              width: 12, height: 12, borderRadius: '50%',
+              background: '#22c55e', border: '2px solid var(--violet)',
+            }} />
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <p style={{ fontSize: 13, fontWeight: 700, color: '#fff' }}>
+              Viewing {viewedMember.user.name ?? viewedMember.user.email}&apos;s data
+            </p>
+            <p style={{ fontSize: 11, color: 'rgba(255,255,255,0.7)', marginTop: 1 }}>
+              Read-only · you cannot add, edit or delete anything
+            </p>
+          </div>
+          <button
+            onClick={stopViewing}
+            style={{
+              display: 'flex', alignItems: 'center', gap: 6, padding: '7px 14px',
+              borderRadius: 10, background: 'rgba(255,255,255,0.18)', border: 'none',
+              color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0,
+            }}
+          >
+            <X size={12} />Stop viewing
+          </button>
+        </div>
+      )}
+
+      {/* Header row */}
+      <div className="flex items-center justify-between">
+        <div>
+          <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>{family.name}</p>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+            {family.members.length} member{family.members.length !== 1 ? 's' : ''} · You are {myRole === 'owner' ? 'the owner' : 'a viewer'}
+          </p>
+        </div>
+        {myRole === 'owner' && (
+          <button className="btn-primary" style={{ gap: 7, fontSize: 12 }} onClick={() => setInviteOpen(true)}>
+            <Link size={13} />
+            Invite member
+          </button>
+        )}
+      </div>
+
+      {/* Members list */}
+      <div>
+        <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 8 }}>
+          Members
+        </p>
+        <div className="space-y-2">
+          {family.members.map(m => {
+            const isMe = m.user.id === myId
+            const isActiveView = viewingUser?.id === m.user.id
+            const displayName = m.user.name ?? m.user.email ?? 'Member'
+
+            return (
+              <div
+                key={m.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 12, padding: '12px 14px',
+                  borderRadius: 12, transition: 'all .15s',
+                  background: isActiveView ? 'var(--violet-bg)' : 'var(--bg)',
+                  border: `1.5px solid ${isActiveView ? 'var(--violet)' : 'var(--border)'}`,
+                }}
+              >
+                {/* Avatar with live ring when viewing */}
+                <MemberAvatar user={m.user} size={36} ring={isActiveView} />
+
+                {/* Name + role */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: isActiveView ? 'var(--violet)' : 'var(--text-1)' }}>
+                      {displayName}
+                    </span>
+                    {isMe && (
+                      <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 99, background: 'var(--bg-3)', color: 'var(--text-3)', border: '1px solid var(--border)' }}>
+                        you
+                      </span>
+                    )}
+                    {isActiveView && (
+                      <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 99, background: 'var(--violet)', color: '#fff', display: 'flex', alignItems: 'center', gap: 4 }}>
+                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: '#22c55e', display: 'inline-block' }} />
+                        Viewing now
+                      </span>
+                    )}
+                    <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 7px', borderRadius: 99, background: m.role === 'owner' ? '#fef3c7' : '#f0f9ff', color: m.role === 'owner' ? '#92400e' : '#0c4a6e', border: `1px solid ${m.role === 'owner' ? '#fde68a' : '#bae6fd'}` }}>
+                      {m.role}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{m.user.email}</p>
+                </div>
+
+                {/* Actions */}
+                <div style={{ display: 'flex', gap: 8, flexShrink: 0, alignItems: 'center' }}>
+                  {/* View data: only a viewer can view the owner's data, not the other way */}
+                  {!isMe && myRole === 'viewer' && m.role === 'owner' && (
+                    isActiveView ? (
+                      <button
+                        onClick={stopViewing}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px',
+                          borderRadius: 8, background: 'var(--violet)', border: 'none',
+                          color: '#fff', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+                        }}
+                      >
+                        <X size={12} />Stop viewing
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => startViewing({ id: m.user.id, name: displayName, image: m.user.image })}
+                        className="btn-secondary"
+                        style={{ fontSize: 12, padding: '6px 12px', gap: 6 }}
+                      >
+                        <Eye size={13} />View data
+                      </button>
+                    )
+                  )}
+                  {myRole === 'owner' && !isMe && (
+                    <button className="btn-ghost" style={{ padding: 7 }} onClick={() => removeMember(m.id)} title="Remove member">
+                      <UserMinus size={13} style={{ color: 'var(--red)' }} />
+                    </button>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+
+      {/* Pending invites */}
+      {myRole === 'owner' && family.invites.length > 0 && (
+        <div>
+          <p style={{ fontSize: 11, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--text-3)', marginBottom: 8 }}>Pending invites</p>
+          <div className="space-y-2">
+            {family.invites.map(inv => {
+              const expired = new Date(inv.expiresAt) < new Date()
+              return (
+                <div key={inv.id} className="flex items-center gap-3 p-3 rounded-xl" style={{ background: 'var(--bg)', border: '1px solid var(--border)', opacity: expired ? 0.6 : 1 }}>
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0" style={{ background: 'var(--violet-bg)' }}>
+                    <span style={{ fontSize: 13 }}>✉️</span>
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                      {inv.email ?? 'Unknown email'}
+                    </p>
+                    <p style={{ fontSize: 11, color: expired ? 'var(--red)' : 'var(--text-3)' }}>
+                      {expired ? 'Expired' : `OTP expires ${new Date(inv.expiresAt).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`}
+                    </p>
+                  </div>
+                  <button className="btn-ghost" style={{ padding: 7 }} onClick={() => cancelInvite(inv.id)} title="Cancel invite">
+                    <X size={13} style={{ color: 'var(--red)' }} />
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Invite modal */}
+      {inviteOpen && (
+        <div className="modal-overlay" onClick={e => e.target === e.currentTarget && closeInviteModal()}>
+          <div className="modal-box" style={{ maxWidth: 420 }}>
+            <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
+              <div>
+                <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Invite member</h3>
+                <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>An OTP will be sent to their email</p>
+              </div>
+              <button className="btn-ghost" style={{ padding: 8 }} onClick={closeInviteModal}><X size={16} /></button>
+            </div>
+            <div className="px-6 py-5 space-y-4">
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Email address</label>
+                <input
+                  type="email"
+                  className="form-input"
+                  placeholder="friend@example.com"
+                  value={inviteEmail}
+                  onChange={e => { setInviteEmail(e.target.value); setInviteError('') }}
+                  onKeyDown={e => e.key === 'Enter' && sendInvite()}
+                  autoFocus
+                />
+              </div>
+              <div className="p-3 rounded-xl flex items-start gap-2" style={{ background: 'var(--violet-bg)', border: '1px solid var(--violet-border)' }}>
+                <span style={{ fontSize: 14, flexShrink: 0 }}>🔒</span>
+                <p style={{ fontSize: 12, color: 'var(--text-2)', lineHeight: 1.5 }}>
+                  We'll email them a secure link + 6-digit OTP. The OTP expires in <strong>5 minutes</strong> and can only be used once.
+                </p>
+              </div>
+              {inviteError && (
+                <p style={{ fontSize: 13, color: 'var(--red)', background: 'var(--red-bg)', padding: '10px 14px', borderRadius: 8 }}>{inviteError}</p>
+              )}
+            </div>
+            <div className="flex gap-3 justify-end px-6 py-4" style={{ borderTop: '1px solid var(--border)' }}>
+              <button className="btn-secondary" onClick={closeInviteModal}>Cancel</button>
+              <button className="btn-primary" onClick={sendInvite} disabled={inviting || !inviteEmail.trim()}>
+                {inviting ? 'Sending…' : 'Send invite'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {family.members.length === 1 && family.invites.length === 0 && myRole === 'owner' && (
+        <div className="p-4 rounded-xl text-center" style={{ background: 'var(--bg)', border: '1px solid var(--border)' }}>
+          <p style={{ fontSize: 13, color: 'var(--text-3)' }}>No members yet. Invite someone to share your data with them.</p>
+        </div>
+      )}
+
+      {/* Success toast */}
+      {inviteToast && (
+        <div style={{
+          position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)', zIndex: 300,
+          background: '#16a34a', color: '#fff', padding: '12px 20px', borderRadius: 12,
+          fontSize: 14, fontWeight: 600, boxShadow: '0 4px 24px rgba(0,0,0,0.2)',
+          display: 'flex', alignItems: 'center', gap: 8, whiteSpace: 'nowrap',
+        }}>
+          <Check size={16} /> {inviteToast}
+        </div>
+      )}
+
+      {/* Leave / delete */}
+      <div className="pt-2" style={{ borderTop: '1px solid var(--border)' }}>
+        {myRole === 'owner' ? (
+          <>
+            <button className="btn-ghost" style={{ fontSize: 12, color: 'var(--red)', gap: 6 }} onClick={leaveFamily} disabled={leaving}>
+              <Trash2 size={13} />
+              {leaving ? 'Deleting…' : 'Delete family group'}
+            </button>
+            <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 4 }}>All members will lose access. Cannot be undone.</p>
+          </>
+        ) : (
+          <button className="btn-ghost" style={{ fontSize: 12, color: 'var(--red)', gap: 6 }} onClick={leaveFamily} disabled={leaving}>
+            <LogOut size={13} />
+            {leaving ? 'Leaving…' : 'Leave family'}
+          </button>
+        )}
+      </div>
     </div>
   )
 }

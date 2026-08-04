@@ -35,6 +35,7 @@ model User {
   userBudgets        UserBudget[]
   userTags           UserTag[]
   categoryRules      CategoryRule[]
+  familyMemberships  FamilyMember[]
 
   createdAt DateTime @default(now())
 }
@@ -361,4 +362,42 @@ model CategoryRule {
   thenText   String
   enabled    Boolean  @default(true)
   createdAt  DateTime @default(now())
+}
+
+// ─── Family sharing ────────────────────────────────────────────────────────
+
+model Family {
+  id        String         @id @default(cuid())
+  name      String
+  members   FamilyMember[]
+  invites   FamilyInvite[]
+  createdAt DateTime       @default(now())
+}
+
+model FamilyMember {
+  id        String   @id @default(cuid())
+  familyId  String
+  family    Family   @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role      String   // "owner" | "viewer"
+  createdAt DateTime @default(now())
+
+  @@unique([familyId, userId])
+}
+
+model FamilyInvite {
+  id          String    @id @default(cuid())
+  familyId    String
+  family      Family    @relation(fields: [familyId], references: [id], onDelete: Cascade)
+  label       String?
+  email       String?   // email the invite was sent to
+  token       String    @unique @default(cuid())
+  otp         String?   // 6-digit OTP code
+  otpExpiry   DateTime? // OTP expires at this time (5 min from creation)
+  otpUsed     Boolean   @default(false)
+  otpAttempts Int       @default(0)
+  accepted    Boolean   @default(false)
+  expiresAt   DateTime
+  createdAt   DateTime  @default(now())
 }

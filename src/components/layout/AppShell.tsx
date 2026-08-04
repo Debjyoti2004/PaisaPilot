@@ -4,6 +4,8 @@ import { usePathname } from 'next/navigation'
 import { Sidebar } from './Sidebar'
 import { MobileNav } from './MobileNav'
 import { TopBar } from './TopBar'
+import { ViewProvider } from '@/contexts/ViewContext'
+import { ViewBanner } from './ViewBanner'
 
 const PAGE_META: Record<string, { title: string; subtitle?: string }> = {
   '/':              { title: 'Dashboard',     subtitle: 'YOUR MONEY, CLEARLY' },
@@ -31,17 +33,20 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const meta = PAGE_META[pathname] ?? { title: 'PaisaPilot', subtitle: 'YOUR MONEY, CLEARLY' }
 
   return (
-    <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
-      <Sidebar />
-      <main className="flex-1 min-h-screen flex flex-col main-pad" style={{ minWidth: 0 }}>
-        <TopBar title={meta.title} subtitle={meta.subtitle} />
-        <div className="flex-1" style={{ minWidth: 0 }}>
-          {children}
+    <ViewProvider>
+      <div className="flex min-h-screen" style={{ background: 'var(--bg)' }}>
+        <Sidebar />
+        <main className="flex-1 min-h-screen flex flex-col main-pad" style={{ minWidth: 0 }}>
+          <TopBar title={meta.title} subtitle={meta.subtitle} />
+          <ViewBanner />
+          <div className="flex-1" style={{ minWidth: 0 }}>
+            {children}
+          </div>
+        </main>
+        <div className="mobile-nav fixed bottom-0 left-0 right-0 z-50 w-full">
+          <MobileNav />
         </div>
-      </main>
-      <div className="mobile-nav fixed bottom-0 left-0 right-0 z-50 w-full">
-        <MobileNav />
       </div>
-    </div>
+    </ViewProvider>
   )
 }
