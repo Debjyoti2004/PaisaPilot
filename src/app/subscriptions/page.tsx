@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, X, Check, Edit2, Trash2, ChevronDown, RotateCcw } from 'lucide-react'
 
 interface Sub {
@@ -35,6 +36,7 @@ function confidenceLabel(c: number) {
 function SubModal({ existing, onClose, onSaved }: {
   existing?: Sub | null; onClose: () => void; onSaved: () => void
 }) {
+  const [mounted, setMounted]   = useState(false)
   const [name, setName]         = useState(existing?.name ?? '')
   const [amount, setAmount]     = useState(existing ? String(existing.amount) : '')
   const [cadence, setCadence]   = useState(existing?.cadence ?? 'monthly')
@@ -43,11 +45,24 @@ function SubModal({ existing, onClose, onSaved }: {
   const [saving, setSaving]     = useState(false)
   const [err, setErr]           = useState('')
 
+  useEffect(() => { setMounted(true) }, [])
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, [onClose])
+
+  function handleAmountChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value.replace(/,/g, '').replace(/[^0-9.]/g, '')
+    const parts = raw.split('.')
+    setAmount(parts.length > 1 ? parts[0] + '.' + parts.slice(1).join('') : parts[0])
+  }
+  function fmtAmountDisplay(val: string) {
+    if (!val) return ''
+    const [int, dec] = val.split('.')
+    const fmt = (parseInt(int, 10) || 0).toLocaleString('en-IN')
+    return dec !== undefined ? `${fmt}.${dec}` : fmt
+  }
 
   async function save() {
     if (!name.trim()) { setErr('Name is required'); return }
@@ -69,7 +84,8 @@ function SubModal({ existing, onClose, onSaved }: {
 
   const CATS = ['Subscriptions', 'Entertainment', 'Utilities', 'Health', 'Shopping', 'Other']
 
-  return (
+  if (!mounted) return null
+  return createPortal(
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box" style={{ maxWidth: 400 }}>
         <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -84,7 +100,7 @@ function SubModal({ existing, onClose, onSaved }: {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Amount (₹)</label>
-              <input type="number" className="form-input" placeholder="0" value={amount} onChange={e => setAmount(e.target.value)} />
+              <input type="text" inputMode="decimal" className="form-input" placeholder="0" value={fmtAmountDisplay(amount)} onChange={handleAmountChange} />
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Billing cycle</label>
@@ -118,7 +134,8 @@ function SubModal({ existing, onClose, onSaved }: {
           <button className="btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : existing ? 'Save' : 'Add subscription'}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 

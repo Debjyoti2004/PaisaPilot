@@ -45,9 +45,9 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: paisapilot-app
+    env_file:
+      - .env.local
     environment:
-      DATABASE_URL: postgresql://paisapilot_user:your_secure_password_here@postgres:5432/paisapilot
-      DIRECT_URL: postgresql://paisapilot_user:your_secure_password_here@postgres:5432/paisapilot
       NODE_ENV: production
     ports:
       - "3000:3000"

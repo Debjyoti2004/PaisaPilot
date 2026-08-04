@@ -44,10 +44,28 @@ function fmtFull(n: number) {
 
 function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
   const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const btnRef = useRef<HTMLButtonElement>(null)
   const label = PERIODS.find(p => p.value === value)?.label ?? 'All time'
+
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('scroll', close, true)
+    return () => window.removeEventListener('scroll', close, true)
+  }, [open])
+
+  function handleOpen() {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 6, left: r.right - 180 })
+    }
+    setOpen(o => !o)
+  }
+
   return (
-    <div className="relative">
-      <button className="period-badge" onClick={() => setOpen(o => !o)}>
+    <div style={{ flexShrink: 0 }}>
+      <button ref={btnRef} className="period-badge" onClick={handleOpen}>
         <CalendarDays size={14} style={{ color: 'var(--text-3)' }} />
         <span>{label}</span>
         <ChevronDown size={13} style={{ color: 'var(--text-3)' }} />
@@ -55,7 +73,7 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="absolute right-0 z-50 animate-slide-down" style={{ top: '100%', marginTop: 6, width: 180, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+          <div className="z-50 animate-slide-down" style={{ position: 'fixed', top: pos.top, left: Math.max(8, pos.left), width: 180, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
             {PERIODS.map(p => (
               <button key={p.value} onClick={() => { onChange(p.value); setOpen(false) }}
                 className="w-full text-left flex items-center gap-2 px-4 py-2.5 transition-colors"
@@ -414,36 +432,32 @@ export default function TransactionsPage() {
           <input type="text" placeholder="Search merchant, category or tag" value={search}
             onChange={e => { setSearch(e.target.value); setPage(1) }} className="form-input" style={{ paddingLeft: 36, width: '100%' }} />
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-          <div className="tab-scroll" style={{ gap: 8 }}>
+        <div className="tab-scroll" style={{ gap: 8 }}>
+          <div className="relative" style={{ flexShrink: 0 }}>
+            <select value={accountFilter} onChange={e => { setAccountFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 140 }}>
+              <option value="">All accounts</option>
+              {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+            </select>
+            <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+          </div>
+          {!groupTab && (
             <div className="relative" style={{ flexShrink: 0 }}>
-              <select value={accountFilter} onChange={e => { setAccountFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 140 }}>
-                <option value="">All accounts</option>
-                {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+              <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 130 }}>
+                <option value="">All types</option>
+                <option value="income">Income only</option>
+                <option value="expense">Expenses only</option>
               </select>
               <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
             </div>
-            {!groupTab && (
-              <div className="relative" style={{ flexShrink: 0 }}>
-                <select value={typeFilter} onChange={e => { setTypeFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 130 }}>
-                  <option value="">All types</option>
-                  <option value="income">Income only</option>
-                  <option value="expense">Expenses only</option>
-                </select>
-                <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
-              </div>
-            )}
-            <div className="relative" style={{ flexShrink: 0 }}>
-              <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
-                <option value="">All categories</option>
-                {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-              </select>
-              <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
-            </div>
+          )}
+          <div className="relative" style={{ flexShrink: 0 }}>
+            <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
+              <option value="">All categories</option>
+              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
+            </select>
+            <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
           </div>
-          <div style={{ flexShrink: 0 }}>
-            <PeriodSelector value={period ?? 'all-time'} onChange={handlePeriodChange} />
-          </div>
+          <PeriodSelector value={period ?? 'all-time'} onChange={handlePeriodChange} />
         </div>
       </div>
 
