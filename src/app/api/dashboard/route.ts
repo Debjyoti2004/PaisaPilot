@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
+import { getEffectiveUserId } from '@/lib/family'
 
 export const dynamic = 'force-dynamic'
 
@@ -41,7 +42,7 @@ function getPeriodRange(period: string, salaryCarryover = false): { start: Date 
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = await requireUserId()
+    const userId = await getEffectiveUserId(request, { allowViewAs: true })
     const { searchParams } = new URL(request.url)
     const period = searchParams.get('period') ?? 'all-time'
 
@@ -147,6 +148,8 @@ export async function GET(request: NextRequest) {
       savedPeriod: settings?.selectedPeriod ?? 'all-time',
     })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, Trash2, ToggleLeft, ToggleRight } from 'lucide-react'
+import { useViewMode } from '@/contexts/ViewContext'
 
 interface Rule { id: string; whenText: string; thenText: string; enabled: boolean; createdAt: string }
 type WealthGroup = 'needs' | 'wants' | 'investments'
@@ -32,6 +33,7 @@ function saveCustomCat(group: WealthGroup, name: string) {
 }
 
 export default function RulesPage() {
+  const { isViewing } = useViewMode()
   const [rules, setRules]   = useState<Rule[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -102,13 +104,15 @@ export default function RulesPage() {
           <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)' }}>Rules</h2>
           <p style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 4 }}>Auto-categorize transactions based on keywords. Rules run when new transactions are imported.</p>
         </div>
-        <button className="btn-primary" style={{ gap: 6, fontSize: 13, padding: '9px 16px', flexShrink: 0 }} onClick={() => setShowAdd(true)}>
-          <Plus size={15} />Add rule
-        </button>
+        {!isViewing && (
+          <button className="btn-primary" style={{ gap: 6, fontSize: 13, padding: '9px 16px', flexShrink: 0 }} onClick={() => setShowAdd(true)}>
+            <Plus size={15} />Add rule
+          </button>
+        )}
       </div>
 
       {/* Add rule modal */}
-      {showAdd && typeof document !== 'undefined' && createPortal(
+      {!isViewing && showAdd && typeof document !== 'undefined' && createPortal(
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && setShowAdd(false)}>
           <div className="modal-box" style={{ maxWidth: 480 }}>
             <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -192,9 +196,11 @@ export default function RulesPage() {
           <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4, textAlign: 'center', maxWidth: 320 }}>
             Rules auto-categorize transactions when they&apos;re imported. For example: if merchant contains &quot;swiggy&quot; → category Dining.
           </p>
-          <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => setShowAdd(true)}>
-            <Plus size={15} />Add your first rule
-          </button>
+          {!isViewing && (
+            <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => setShowAdd(true)}>
+              <Plus size={15} />Add your first rule
+            </button>
+          )}
         </div>
       )}
 
@@ -212,22 +218,24 @@ export default function RulesPage() {
                     {' '}→ <strong style={{ color: 'var(--violet)' }}>{r.thenText}</strong>
                   </p>
                 </div>
-                <div className="flex gap-2 flex-shrink-0">
-                  <button className="btn-ghost" style={{ padding: 7 }} onClick={() => toggleRule(r.id, !r.enabled)}>
-                    {r.enabled
-                      ? <ToggleRight size={28} style={{ color: 'var(--green)' }} />
-                      : <ToggleLeft size={28} style={{ color: 'var(--text-3)' }} />
-                    }
-                  </button>
-                  {delId === r.id ? (
-                    <div className="flex gap-1">
-                      <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11, color: 'var(--red)' }} onClick={() => deleteRule(r.id)}>Delete</button>
-                      <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11 }} onClick={() => setDelId(null)}>Cancel</button>
-                    </div>
-                  ) : (
-                    <button className="btn-ghost" style={{ padding: 7 }} onClick={() => setDelId(r.id)}><Trash2 size={14} /></button>
-                  )}
-                </div>
+                {!isViewing && (
+                  <div className="flex gap-2 flex-shrink-0">
+                    <button className="btn-ghost" style={{ padding: 7 }} onClick={() => toggleRule(r.id, !r.enabled)}>
+                      {r.enabled
+                        ? <ToggleRight size={28} style={{ color: 'var(--green)' }} />
+                        : <ToggleLeft size={28} style={{ color: 'var(--text-3)' }} />
+                      }
+                    </button>
+                    {delId === r.id ? (
+                      <div className="flex gap-1">
+                        <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11, color: 'var(--red)' }} onClick={() => deleteRule(r.id)}>Delete</button>
+                        <button className="btn-ghost" style={{ padding: '5px 8px', fontSize: 11 }} onClick={() => setDelId(null)}>Cancel</button>
+                      </div>
+                    ) : (
+                      <button className="btn-ghost" style={{ padding: 7 }} onClick={() => setDelId(r.id)}><Trash2 size={14} /></button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
           </div>

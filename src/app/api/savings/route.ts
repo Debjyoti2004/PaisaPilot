@@ -3,10 +3,11 @@ export const dynamic = 'force-dynamic'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
+import { getEffectiveUserId } from '@/lib/family'
 
-export async function GET() {
+export async function GET(request: NextRequest) {
   try {
-    const userId = await requireUserId()
+    const userId = await getEffectiveUserId(request, { allowViewAs: true })
     const buckets = await prisma.savingsBucket.findMany({
       where: { userId },
       include: { entries: { orderBy: { month: 'desc' }, take: 12 } },
@@ -22,6 +23,8 @@ export async function GET() {
 
     return NextResponse.json({ buckets, summary })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -71,6 +74,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ bucket, entry }, { status: 201 })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -110,6 +115,8 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ error: 'entryId or bucketId required' }, { status: 400 })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -136,6 +143,8 @@ export async function PATCH(request: NextRequest) {
     })
     return NextResponse.json({ bucket })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
