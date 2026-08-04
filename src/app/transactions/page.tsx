@@ -48,6 +48,13 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
   const btnRef = useRef<HTMLButtonElement>(null)
   const label = PERIODS.find(p => p.value === value)?.label ?? 'All time'
 
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('scroll', close, true)
+    return () => window.removeEventListener('scroll', close, true)
+  }, [open])
+
   function handleOpen() {
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect()

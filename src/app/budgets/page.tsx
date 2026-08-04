@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { createPortal } from 'react-dom'
 import { Plus, X, Trash2, Edit2, ChevronDown } from 'lucide-react'
 
 interface Budget { id: string; category: string; monthlyLimit: number; active: boolean; spent: number }
@@ -18,6 +19,7 @@ function fmtINR(n: number) {
 function BudgetModal({ existing, usedCategories, onClose, onSaved }: {
   existing?: Budget | null; usedCategories: string[]; onClose: () => void; onSaved: () => void
 }) {
+  const [mounted, setMounted]   = useState(false)
   const [category, setCategory] = useState(existing?.category ?? '')
   const [limit, setLimit]       = useState(existing ? String(existing.monthlyLimit) : '')
   const [saving, setSaving]     = useState(false)
@@ -25,12 +27,25 @@ function BudgetModal({ existing, usedCategories, onClose, onSaved }: {
 
   const availableCats = CATEGORIES.filter(c => !usedCategories.includes(c) || c === existing?.category)
 
+  useEffect(() => { setMounted(true) }, [])
   useEffect(() => {
     if (!existing && availableCats.length > 0 && !category) setCategory(availableCats[0])
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', h)
     return () => window.removeEventListener('keydown', h)
   }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  function handleLimitChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const raw = e.target.value.replace(/,/g, '').replace(/[^0-9.]/g, '')
+    const parts = raw.split('.')
+    setLimit(parts.length > 1 ? parts[0] + '.' + parts.slice(1).join('') : parts[0])
+  }
+  function fmtLimitDisplay(val: string) {
+    if (!val) return ''
+    const [int, dec] = val.split('.')
+    const fmt = (parseInt(int, 10) || 0).toLocaleString('en-IN')
+    return dec !== undefined ? `${fmt}.${dec}` : fmt
+  }
 
   async function save() {
     if (!category) { setErr('Select a category'); return }
@@ -50,7 +65,8 @@ function BudgetModal({ existing, usedCategories, onClose, onSaved }: {
     } finally { setSaving(false) }
   }
 
-  return (
+  if (!mounted) return null
+  return createPortal(
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
       <div className="modal-box" style={{ maxWidth: 380 }}>
         <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -74,7 +90,7 @@ function BudgetModal({ existing, usedCategories, onClose, onSaved }: {
           </div>
           <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Monthly limit (₹)</label>
-            <input type="number" className="form-input" placeholder="0" value={limit} onChange={e => setLimit(e.target.value)} />
+            <input type="text" inputMode="decimal" className="form-input" placeholder="0" value={fmtLimitDisplay(limit)} onChange={handleLimitChange} />
           </div>
           {err && <p style={{ fontSize: 13, color: 'var(--red)', background: 'var(--red-bg)', padding: '10px 14px', borderRadius: 8 }}>{err}</p>}
         </div>
@@ -83,7 +99,8 @@ function BudgetModal({ existing, usedCategories, onClose, onSaved }: {
           <button className="btn-primary" onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Set budget'}</button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
