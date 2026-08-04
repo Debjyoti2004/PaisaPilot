@@ -11,6 +11,7 @@ import {
 } from 'lucide-react'
 import Link from 'next/link'
 import { ChartTooltip } from '@/components/ChartTooltip'
+import { useViewMode } from '@/contexts/ViewContext'
 
 // ── Types ─────────────────────────────────────────────────────
 interface DashboardData {
@@ -449,6 +450,7 @@ function ComingUp({ items }: { items: DashboardData['comingUp'] }) {
 // ── Main Dashboard ──────────────────────────────────────────────
 export default function DashboardPage() {
   const { data: session } = useSession()
+  const { isViewing, viewingUser, accessRevoked } = useViewMode()
   const user = session?.user as { name?: string | null; email?: string | null; image?: string | null } | undefined
 
   const [period, setPeriod] = useState<Period>('all-time')
@@ -456,10 +458,13 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const load = useCallback(async (p: Period) => {
+  const load = useCallback(async (p: Period, viewAs?: string, ownerName?: string) => {
     setLoading(true); setError('')
     try {
-      const res = await fetch(`/api/dashboard?period=${p}`)
+      const params = new URLSearchParams({ period: p })
+      if (viewAs) params.set('viewAs', viewAs)
+      const res = await fetch(`/api/dashboard?${params}`)
+      if (res.status === 403) { accessRevoked(ownerName ?? 'user'); return }
       if (!res.ok) throw new Error('Failed to load dashboard')
       const d = await res.json()
       setData(d)
@@ -468,39 +473,43 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }, [])
+  }, [accessRevoked])
 
   // On mount, load saved period first
   useEffect(() => {
     async function init() {
       try {
-        const res = await fetch('/api/dashboard?period=all-time')
+        const params = new URLSearchParams({ period: 'all-time' })
+        if (viewingUser?.id) params.set('viewAs', viewingUser.id)
+        const res = await fetch(`/api/dashboard?${params}`)
+        if (res.status === 403) { accessRevoked(viewingUser?.name ?? 'user'); setLoading(false); return }
         const d = await res.json()
-        const saved = (d.savedPeriod ?? 'all-time') as Period
+        const saved = (isViewing ? 'all-time' : (d.savedPeriod ?? 'all-time')) as Period
         setPeriod(saved)
         if (saved === 'all-time') {
           setData(d)
           setLoading(false)
         } else {
-          await load(saved)
+          await load(saved, viewingUser?.id, viewingUser?.name)
         }
       } catch {
         setLoading(false); setError('Failed to load')
       }
     }
     init()
-  }, [load])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [load, viewingUser?.id, accessRevoked])
 
   // Refresh on global event
   useEffect(() => {
-    const handler = () => load(period)
+    const handler = () => load(period, viewingUser?.id, viewingUser?.name)
     window.addEventListener('paisapilot:refresh', handler)
     return () => window.removeEventListener('paisapilot:refresh', handler)
-  }, [period, load])
+  }, [period, load, viewingUser?.id])
 
   const handlePeriodChange = (p: Period) => {
     setPeriod(p)
-    load(p)
+    load(p, viewingUser?.id, viewingUser?.name)
   }
 
   const greeting = () => {

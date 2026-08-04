@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
+import { getEffectiveUserId } from '@/lib/family'
 
 export const dynamic = 'force-dynamic'
 
@@ -91,7 +92,7 @@ async function detectPatterns(userId: string) {
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = await requireUserId()
+    const userId = await getEffectiveUserId(request, { allowViewAs: true })
     const { searchParams } = new URL(request.url)
     const type = searchParams.get('type') ?? 'all' // all | subs
 
@@ -106,6 +107,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ payments, suggestions })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -148,6 +151,8 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ payment }, { status: 201 })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -225,6 +230,8 @@ export async function PATCH(request: NextRequest) {
     })
     return NextResponse.json({ payment })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -255,6 +262,8 @@ export async function DELETE(request: NextRequest) {
     await prisma.recurringPayment.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

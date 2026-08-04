@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
+import { getEffectiveUserId } from '@/lib/family'
 import { createHash } from 'crypto'
 
 export const dynamic = 'force-dynamic'
@@ -49,7 +50,7 @@ function buildFingerprint(userId: string, date: string, merchant: string, amount
 
 export async function GET(request: NextRequest) {
   try {
-    const userId = await requireUserId()
+    const userId = await getEffectiveUserId(request, { allowViewAs: true })
     const { searchParams } = new URL(request.url)
 
     const period    = searchParams.get('period') ?? 'all-time'
@@ -124,6 +125,8 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({ transactions, total, page, pageSize })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -267,6 +270,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ transaction }, { status: 201 })
     }
   } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -339,6 +344,8 @@ export async function PATCH(request: NextRequest) {
       },
     })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -392,6 +399,8 @@ export async function DELETE(request: NextRequest) {
 
     return NextResponse.json({ success: true })
   } catch (error) {
+    if (error instanceof Error && error.message === 'FORBIDDEN')
+      return NextResponse.json({ error: 'Access revoked' }, { status: 403 })
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }

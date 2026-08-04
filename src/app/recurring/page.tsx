@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, Check, RotateCcw, ChevronDown, Edit2, Trash2, RefreshCw } from 'lucide-react'
+import { useViewMode } from '@/contexts/ViewContext'
 
 interface RecurringPayment {
   id: string; name: string; amount: number; cadence: string
@@ -160,6 +161,7 @@ function EditModal({ existing, onClose, onSaved }: {
 
 // ── Main Page ─────────────────────────────────────────────────────────
 export default function RecurringPage() {
+  const { isViewing, viewingUser, accessRevoked } = useViewMode()
   const [payments, setPayments]       = useState<RecurringPayment[]>([])
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [loading, setLoading]         = useState(true)
@@ -171,17 +173,19 @@ export default function RecurringPage() {
   const [confirmingPay, setConfirmingPay] = useState<string | null>(null)
   const [useNextMonth, setUseNextMonth]   = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (viewAs?: string, ownerName?: string) => {
     setLoading(true)
     try {
-      const res = await fetch('/api/recurring')
+      const params = viewAs ? `?viewAs=${viewAs}` : ''
+      const res = await fetch(`/api/recurring${params}`)
+      if (res.status === 403) { accessRevoked(ownerName ?? 'user'); return }
       const d = await res.json()
       setPayments(d.payments ?? [])
       setSuggestions(d.suggestions ?? [])
     } catch {} finally { setLoading(false) }
-  }, [])
+  }, [accessRevoked])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(viewingUser?.id, viewingUser?.name) }, [load, viewingUser?.id])
 
   const active   = payments.filter(p => p.active)
   const inactive = payments.filter(p => !p.active)
@@ -237,10 +241,12 @@ export default function RecurringPage() {
             Detected from real transaction timing and stable amounts—not names alone.
           </p>
         </div>
-        <button className="btn-primary" style={{ gap: 6, flexShrink: 0 }}
-          onClick={() => { setEditing(null); setModalOpen(true) }}>
-          <Plus size={15} />Add recurring payment
-        </button>
+        {!isViewing && (
+          <button className="btn-primary" style={{ gap: 6, flexShrink: 0 }}
+            onClick={() => { setEditing(null); setModalOpen(true) }}>
+            <Plus size={15} />Add recurring payment
+          </button>
+        )}
       </div>
 
       {/* Active detection banner */}
@@ -390,21 +396,25 @@ export default function RecurringPage() {
                   >
                     <Check size={14} />
                   </button>
-                  <button className="btn-ghost" style={{ padding: 8, minHeight: 36 }} onClick={() => { setEditing(p); setModalOpen(true) }}>
-                    <Edit2 size={14} />
-                  </button>
-                  {deleteId === p.id ? (
+                  {!isViewing && (
                     <>
-                      <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: 12, color: 'var(--red)', minHeight: 36 }} onClick={() => deletePayment(p.id)}>Delete</button>
-                      <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: 12, minHeight: 36 }} onClick={() => setDeleteId(null)}>Cancel</button>
+                      <button className="btn-ghost" style={{ padding: 8, minHeight: 36 }} onClick={() => { setEditing(p); setModalOpen(true) }}>
+                        <Edit2 size={14} />
+                      </button>
+                      {deleteId === p.id ? (
+                        <>
+                          <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: 12, color: 'var(--red)', minHeight: 36 }} onClick={() => deletePayment(p.id)}>Delete</button>
+                          <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: 12, minHeight: 36 }} onClick={() => setDeleteId(null)}>Cancel</button>
+                        </>
+                      ) : (
+                        <button className="btn-ghost" style={{ padding: 8, minHeight: 36 }} onClick={() => setDeleteId(p.id)}><Trash2 size={14} /></button>
+                      )}
                     </>
-                  ) : (
-                    <button className="btn-ghost" style={{ padding: 8, minHeight: 36 }} onClick={() => setDeleteId(p.id)}><Trash2 size={14} /></button>
                   )}
                 </div>
               </div>
               {/* Inline confirm panel */}
-              {isConfirming && (
+              {!isViewing && isConfirming && (
                 <div style={{
                   padding: '12px 20px 14px', background: 'var(--violet-bg)',
                   borderTop: '1px solid var(--violet-border)', borderBottom: '1px solid var(--border)',
@@ -454,13 +464,15 @@ export default function RecurringPage() {
                   <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{CADENCE_LABELS[p.cadence] ?? p.cadence} · {p.category}</p>
                 </div>
                 <span className="num" style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-3)' }}>{fmtINR(p.amount)}</span>
-                <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: 12, gap: 5 }}
-                  onClick={async () => {
-                    await fetch('/api/recurring', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, active: true }) })
-                    load()
-                  }}>
-                  <RotateCcw size={12} />Resume
-                </button>
+                {!isViewing && (
+                  <button className="btn-secondary" style={{ padding: '6px 12px', fontSize: 12, gap: 5 }}
+                    onClick={async () => {
+                      await fetch('/api/recurring', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: p.id, active: true }) })
+                      load()
+                    }}>
+                    <RotateCcw size={12} />Resume
+                  </button>
+                )}
               </div>
             ))}
           </div>
@@ -475,13 +487,15 @@ export default function RecurringPage() {
           <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4, textAlign: 'center', maxWidth: 320 }}>
             Add your rent, SIPs, subscriptions, and EMIs. Patterns are auto-detected from your transactions.
           </p>
-          <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => { setEditing(null); setModalOpen(true) }}>
-            <Plus size={15} />Add your first payment
-          </button>
+          {!isViewing && (
+            <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => { setEditing(null); setModalOpen(true) }}>
+              <Plus size={15} />Add your first payment
+            </button>
+          )}
         </div>
       )}
 
-      {modalOpen && (
+      {!isViewing && modalOpen && (
         <EditModal existing={editing} onClose={() => { setModalOpen(false); setEditing(null) }} onSaved={load} />
       )}
     </div>

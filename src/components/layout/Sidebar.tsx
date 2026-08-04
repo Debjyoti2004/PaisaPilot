@@ -29,11 +29,14 @@ const NAV = [
   { href: '/bank-compare',  label: 'Bank Compare', icon: FileSearch },
 ]
 
+type Tip = { label: string; y: number }
+
 export function Sidebar() {
   const pathname = usePathname()
   const { data: session } = useSession()
   const [collapsed, setCollapsed] = useState<boolean | undefined>(undefined)
   const [ready, setReady] = useState(false)
+  const [tip, setTip] = useState<Tip | null>(null)
 
   useEffect(() => {
     const stored = localStorage.getItem(LS_KEY) === 'true'
@@ -45,11 +48,18 @@ export function Sidebar() {
   function toggle() {
     const next = !collapsed
     setCollapsed(next)
+    setTip(null)
     localStorage.setItem(LS_KEY, String(next))
     document.documentElement.style.setProperty('--sidebar-w', `${next ? COLLAPSED_W : EXPANDED_W}px`)
   }
 
-  // Hold a blank shell until localStorage is read — no flash on refresh
+  function showTip(e: React.MouseEvent, label: string) {
+    if (!collapsed) return
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    setTip({ label, y: rect.top + rect.height / 2 })
+  }
+
+  // Hold a blank shell until localStorage is read — prevents flash on refresh
   if (collapsed === undefined) {
     return (
       <aside
@@ -65,6 +75,28 @@ export function Sidebar() {
     : (user?.email?.[0] ?? 'U').toUpperCase()
 
   return (
+    <>
+    {/* Instant tooltip rendered at fixed position — not clipped by sidebar overflow:hidden */}
+    {collapsed && tip && (
+      <div style={{
+        position: 'fixed',
+        left: COLLAPSED_W + 10,
+        top: tip.y,
+        transform: 'translateY(-50%)',
+        background: '#18181b',
+        color: '#fff',
+        padding: '5px 10px',
+        borderRadius: 7,
+        fontSize: 12,
+        fontWeight: 500,
+        whiteSpace: 'nowrap',
+        zIndex: 9999,
+        pointerEvents: 'none',
+        boxShadow: '0 2px 8px rgba(0,0,0,0.18)',
+      }}>
+        {tip.label}
+      </div>
+    )}
     <aside
       className="sidebar-desktop fixed left-0 top-0 h-full flex flex-col z-40"
       style={{
@@ -75,7 +107,7 @@ export function Sidebar() {
         overflow: 'hidden',
       }}
     >
-      {/* Logo + toggle */}
+      {/* Logo + toggle — 64px to match TopBar */}
       <div
         className="px-3 flex items-center flex-shrink-0"
         style={{
@@ -118,7 +150,8 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                title={collapsed ? item.label : undefined}
+                onMouseEnter={e => showTip(e, item.label)}
+                onMouseLeave={() => setTip(null)}
                 className={`flex items-center rounded-xl transition-all duration-150 ${isActive ? 'nav-active' : 'nav-inactive'}`}
                 style={{
                   height: 40, fontSize: 14,
@@ -152,7 +185,8 @@ export function Sidebar() {
               <Link
                 key={item.href}
                 href={item.href}
-                title={collapsed ? item.label : undefined}
+                onMouseEnter={e => showTip(e, item.label)}
+                onMouseLeave={() => setTip(null)}
                 className={`flex items-center rounded-xl transition-all duration-150 ${isActive ? 'nav-active' : 'nav-inactive'}`}
                 style={{
                   height: 40, fontSize: 14,
@@ -171,7 +205,7 @@ export function Sidebar() {
         </div>
       </nav>
 
-      {/* Private by design badge — hidden when collapsed */}
+      {/* Private by design — hidden when collapsed */}
       {!collapsed && (
         <div className="px-3 pb-2">
           <div className="flex items-start gap-2 p-3 rounded-xl"
@@ -227,5 +261,6 @@ export function Sidebar() {
         </Link>
       </div>
     </aside>
+    </>
   )
 }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, Check, Edit2, Trash2, ChevronDown, RotateCcw } from 'lucide-react'
+import { useViewMode } from '@/contexts/ViewContext'
 
 interface Sub {
   id: string; name: string; amount: number; cadence: string
@@ -141,6 +142,7 @@ function SubModal({ existing, onClose, onSaved }: {
 
 // ── Main Page ─────────────────────────────────────────────────────────
 export default function SubscriptionsPage() {
+  const { isViewing, viewingUser, accessRevoked } = useViewMode()
   const [subs, setSubs]             = useState<Sub[]>([])
   const [suggestions, setSuggestions] = useState<Suggestion[]>([])
   const [loading, setLoading]       = useState(true)
@@ -152,17 +154,19 @@ export default function SubscriptionsPage() {
   const [confirmingPay, setConfirmingPay] = useState<string | null>(null)
   const [useNextMonth, setUseNextMonth]   = useState(false)
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (viewAs?: string, ownerName?: string) => {
     setLoading(true)
     try {
-      const res = await fetch('/api/recurring?type=subs')
+      const params = viewAs ? `&viewAs=${viewAs}` : ''
+      const res = await fetch(`/api/recurring?type=subs${params}`)
+      if (res.status === 403) { accessRevoked(ownerName ?? 'user'); return }
       const d = await res.json()
       setSubs(d.payments ?? [])
       setSuggestions((d.suggestions ?? []).filter((s: Suggestion) => s.category === 'Subscriptions' || s.category === 'Entertainment'))
     } catch {} finally { setLoading(false) }
-  }, [])
+  }, [accessRevoked])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(viewingUser?.id, viewingUser?.name) }, [load, viewingUser?.id])
 
   const active      = subs.filter(s => s.active)
   const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0)
@@ -218,10 +222,12 @@ export default function SubscriptionsPage() {
             Detected from real transaction timing and stable amounts—not names alone.
           </p>
         </div>
-        <button className="btn-primary" style={{ gap: 6, flexShrink: 0 }}
-          onClick={() => { setEditing(null); setModalOpen(true) }}>
-          <Plus size={15} />Add subscription
-        </button>
+        {!isViewing && (
+          <button className="btn-primary" style={{ gap: 6, flexShrink: 0 }}
+            onClick={() => { setEditing(null); setModalOpen(true) }}>
+            <Plus size={15} />Add subscription
+          </button>
+        )}
       </div>
 
       {/* Active detection banner */}
@@ -311,36 +317,38 @@ export default function SubscriptionsPage() {
                       {fmtINR(mo)}/month · {isAlreadyPaid ? `Paid ✓ · next ${s.nextDate}` : `next ${s.nextDate}`}
                     </p>
                   </div>
-                  <div className="flex gap-1 flex-shrink-0">
-                    <button
-                      className="btn-ghost"
-                      title={
-                        paying.has(s.id) ? 'Processing…'
-                        : isAlreadyPaid && dayOfMonth < 25 ? 'Paid — available again from 25th'
-                        : 'Mark paid'
-                      }
-                      disabled={buttonDisabled || paying.has(s.id)}
-                      onClick={() => { if (!buttonDisabled && !paying.has(s.id)) { setUseNextMonth(false); setConfirmingPay(isConfirming ? null : s.id) } }}
-                      style={{
-                        padding: 8,
-                        color: isAlreadyPaid ? 'var(--green)' : paying.has(s.id) ? 'var(--green)' : buttonDisabled ? 'var(--border)' : isConfirming ? 'var(--violet)' : undefined,
-                        cursor: buttonDisabled ? 'not-allowed' : undefined,
-                      }}
-                    >
-                      <Check size={14} />
-                    </button>
-                    <button className="btn-ghost" style={{ padding: 8 }} onClick={() => { setEditing(s); setModalOpen(true) }}><Edit2 size={14} /></button>
-                    {deleteId === s.id ? (
-                      <>
-                        <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: 12, color: 'var(--red)' }} onClick={() => deleteSub(s.id)}>Delete</button>
-                        <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setDeleteId(null)}>Cancel</button>
-                      </>
-                    ) : (
-                      <button className="btn-ghost" style={{ padding: 8, color: 'var(--red)' }} onClick={() => setDeleteId(s.id)}><Trash2 size={14} /></button>
-                    )}
-                  </div>
+                  {!isViewing && (
+                    <div className="flex gap-1 flex-shrink-0">
+                      <button
+                        className="btn-ghost"
+                        title={
+                          paying.has(s.id) ? 'Processing…'
+                          : isAlreadyPaid && dayOfMonth < 25 ? 'Paid — available again from 25th'
+                          : 'Mark paid'
+                        }
+                        disabled={buttonDisabled || paying.has(s.id)}
+                        onClick={() => { if (!buttonDisabled && !paying.has(s.id)) { setUseNextMonth(false); setConfirmingPay(isConfirming ? null : s.id) } }}
+                        style={{
+                          padding: 8,
+                          color: isAlreadyPaid ? 'var(--green)' : paying.has(s.id) ? 'var(--green)' : buttonDisabled ? 'var(--border)' : isConfirming ? 'var(--violet)' : undefined,
+                          cursor: buttonDisabled ? 'not-allowed' : undefined,
+                        }}
+                      >
+                        <Check size={14} />
+                      </button>
+                      <button className="btn-ghost" style={{ padding: 8 }} onClick={() => { setEditing(s); setModalOpen(true) }}><Edit2 size={14} /></button>
+                      {deleteId === s.id ? (
+                        <>
+                          <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: 12, color: 'var(--red)' }} onClick={() => deleteSub(s.id)}>Delete</button>
+                          <button className="btn-ghost" style={{ padding: '6px 10px', fontSize: 12 }} onClick={() => setDeleteId(null)}>Cancel</button>
+                        </>
+                      ) : (
+                        <button className="btn-ghost" style={{ padding: 8, color: 'var(--red)' }} onClick={() => setDeleteId(s.id)}><Trash2 size={14} /></button>
+                      )}
+                    </div>
+                  )}
                 </div>
-                {isConfirming && (
+                {!isViewing && isConfirming && (
                   <div style={{
                     padding: '12px 20px 14px', background: 'var(--violet-bg)',
                     borderTop: '1px solid var(--violet-border)', borderBottom: '1px solid var(--border)',
@@ -395,16 +403,18 @@ export default function SubscriptionsPage() {
                     <p className="num" style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>{fmtINR(s.amount)}</p>
                     <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>{fmtINR(mo)}/month · next {s.nextDate}</p>
                   </div>
-                  <div className="flex gap-2 flex-shrink-0">
-                    <button className="btn-ghost" style={{ fontSize: 13, padding: '8px 14px' }}
-                      disabled={isActing} onClick={() => dismissSuggestion(s.patternKey)}>
-                      Ignore
-                    </button>
-                    <button className="btn-primary" style={{ fontSize: 13, gap: 5, padding: '8px 16px' }}
-                      disabled={isActing} onClick={() => confirmSuggestion(s)}>
-                      <Check size={13} />Keep
-                    </button>
-                  </div>
+                  {!isViewing && (
+                    <div className="flex gap-2 flex-shrink-0">
+                      <button className="btn-ghost" style={{ fontSize: 13, padding: '8px 14px' }}
+                        disabled={isActing} onClick={() => dismissSuggestion(s.patternKey)}>
+                        Ignore
+                      </button>
+                      <button className="btn-primary" style={{ fontSize: 13, gap: 5, padding: '8px 16px' }}
+                        disabled={isActing} onClick={() => confirmSuggestion(s)}>
+                        <Check size={13} />Keep
+                      </button>
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -418,13 +428,15 @@ export default function SubscriptionsPage() {
           <p style={{ fontSize: 32 }}>📺</p>
           <p style={{ fontWeight: 600, color: 'var(--text-1)', marginTop: 12 }}>No subscriptions tracked</p>
           <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>Add Netflix, Spotify, gym memberships, and more.</p>
-          <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => { setEditing(null); setModalOpen(true) }}>
-            <Plus size={15} />Add subscription
-          </button>
+          {!isViewing && (
+            <button className="btn-primary" style={{ marginTop: 16, gap: 6 }} onClick={() => { setEditing(null); setModalOpen(true) }}>
+              <Plus size={15} />Add subscription
+            </button>
+          )}
         </div>
       )}
 
-      {modalOpen && (
+      {!isViewing && modalOpen && (
         <SubModal existing={editing} onClose={() => { setModalOpen(false); setEditing(null) }} onSaved={load} />
       )}
     </div>

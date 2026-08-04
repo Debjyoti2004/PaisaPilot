@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { Search, ChevronDown, X, Plus, Trash2, Check, CalendarDays, AlertCircle, Pencil } from 'lucide-react'
 import { NEEDS_CATS, WANTS_CATS, INV_CATS, ALL_CATS, INCOME_CATS, GROUP_DEFAULT_CAT, catsForGroup } from '@/config/categories'
+import { useViewMode } from '@/contexts/ViewContext'
 
 interface Tx {
   id: string; merchant: string; date: string; actualPaidDate?: string | null; category: string; account: string
@@ -89,7 +90,7 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
   )
 }
 
-function InlineCategory({ txId, current, wealthGroup, txType, onSave }: { txId: string; current: string; wealthGroup?: string | null; txType?: string; onSave: (cat: string) => void }) {
+function InlineCategory({ txId, current, wealthGroup, txType, onSave, readOnly }: { txId: string; current: string; wealthGroup?: string | null; txType?: string; onSave: (cat: string) => void; readOnly?: boolean }) {
   const [saving, setSaving] = useState(false)
   const cats = txType === 'income' ? INCOME_CATS : catsForGroup(wealthGroup)
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
@@ -100,6 +101,7 @@ function InlineCategory({ txId, current, wealthGroup, txType, onSave }: { txId: 
     } catch {}
     setSaving(false)
   }
+  if (readOnly) return <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{current}</span>
   return (
     <select value={cats.includes(current) ? current : cats[0]} onChange={handleChange} disabled={saving} className="inline-select" style={{ opacity: saving ? 0.5 : 1 }}>
       {cats.map(c => <option key={c}>{c}</option>)}
@@ -107,7 +109,7 @@ function InlineCategory({ txId, current, wealthGroup, txType, onSave }: { txId: 
   )
 }
 
-function TagPills({ txId, tags, onUpdate }: { txId: string; tags: string[]; onUpdate: (tags: string[]) => void }) {
+function TagPills({ txId, tags, onUpdate, readOnly }: { txId: string; tags: string[]; onUpdate: (tags: string[]) => void; readOnly?: boolean }) {
   const [modalOpen, setModalOpen] = useState(false)
   async function removeTag(tag: string) {
     const next = tags.filter(t => t !== tag)
@@ -121,15 +123,17 @@ function TagPills({ txId, tags, onUpdate }: { txId: string; tags: string[]; onUp
       {tags.map(tag => (
         <span key={tag} className="tag-pill" style={{ fontSize: 11 }}>
           {tag}
-          <button onClick={() => removeTag(tag)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--violet)', display: 'flex', alignItems: 'center' }}><X size={10} /></button>
+          {!readOnly && <button onClick={() => removeTag(tag)} style={{ background: 'none', border: 'none', padding: 0, cursor: 'pointer', color: 'var(--violet)', display: 'flex', alignItems: 'center' }}><X size={10} /></button>}
         </span>
       ))}
-      <button onClick={() => setModalOpen(true)}
-        className="flex items-center justify-center rounded-full"
-        style={{ width: 22, height: 22, background: 'var(--bg-3)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text-3)' }}>
-        <Plus size={11} />
-      </button>
-      {modalOpen && <AddTagModal txId={txId} currentTags={tags} onSave={updated => { onUpdate(updated); setModalOpen(false) }} onClose={() => setModalOpen(false)} />}
+      {!readOnly && (
+        <button onClick={() => setModalOpen(true)}
+          className="flex items-center justify-center rounded-full"
+          style={{ width: 22, height: 22, background: 'var(--bg-3)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text-3)' }}>
+          <Plus size={11} />
+        </button>
+      )}
+      {!readOnly && modalOpen && <AddTagModal txId={txId} currentTags={tags} onSave={updated => { onUpdate(updated); setModalOpen(false) }} onClose={() => setModalOpen(false)} />}
     </div>
   )
 }
@@ -330,6 +334,7 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
 
 // ── Transactions Page ──────────────────────────────────────────
 export default function TransactionsPage() {
+  const { isViewing, viewingUser, accessRevoked } = useViewMode()
   const [txns, setTxns] = useState<Tx[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -345,18 +350,19 @@ export default function TransactionsPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const load = useCallback(async (p: Period, s: string, acc: string, cat: string, type: string, gt: string, pg: number) => {
+  const load = useCallback(async (p: Period, s: string, acc: string, cat: string, type: string, gt: string, pg: number, viewAs?: string, ownerName?: string) => {
     setLoading(true); setError('')
     try {
       const params = new URLSearchParams({ period: p, page: String(pg) })
-      if (s)   params.set('search', s)
-      if (acc) params.set('account', acc)
-      if (cat) params.set('category', cat)
-      // groupTab overrides typeFilter
+      if (s)      params.set('search', s)
+      if (acc)    params.set('account', acc)
+      if (cat)    params.set('category', cat)
       if (gt === 'income') params.set('type', 'income')
       else if (gt)         params.set('wealthGroup', gt)
       else if (type)       params.set('type', type)
+      if (viewAs) params.set('viewAs', viewAs)
       const res = await fetch(`/api/transactions?${params}`)
+      if (res.status === 403) { accessRevoked(ownerName ?? 'user'); return }
       if (!res.ok) throw new Error('Failed')
       const d = await res.json()
       setTxns(d.transactions ?? [])
@@ -364,22 +370,22 @@ export default function TransactionsPage() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load')
     } finally { setLoading(false) }
-  }, [])
+  }, [accessRevoked])
 
   useEffect(() => { setPeriod('all-time') }, [])
 
   useEffect(() => {
     if (period === null) return
     if (searchDebounce.current) clearTimeout(searchDebounce.current)
-    searchDebounce.current = setTimeout(() => load(period, search, accountFilter, categoryFilter, typeFilter, groupTab, page), 300)
+    searchDebounce.current = setTimeout(() => load(period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, viewingUser?.id, viewingUser?.name), 300)
     return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current) }
-  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, load])
+  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, load, viewingUser?.id])
 
   useEffect(() => {
-    const handler = () => load(period ?? 'all-time', search, accountFilter, categoryFilter, typeFilter, groupTab, 1)
+    const handler = () => load(period ?? 'all-time', search, accountFilter, categoryFilter, typeFilter, groupTab, 1, viewingUser?.id, viewingUser?.name)
     window.addEventListener('paisapilot:refresh', handler)
     return () => window.removeEventListener('paisapilot:refresh', handler)
-  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, load])
+  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, load, viewingUser?.id])
 
   const handlePeriodChange = (p: Period) => {
     setPeriod(p); setPage(1)
@@ -526,10 +532,10 @@ export default function TransactionsPage() {
                         </div>
                       </td>
                       <td className="hidden sm:table-cell">
-                        <InlineCategory txId={tx.id} current={tx.category} wealthGroup={tx.wealthGroup} txType={tx.type} onSave={cat => updateTx(tx.id, { category: cat })} />
+                        <InlineCategory txId={tx.id} current={tx.category} wealthGroup={tx.wealthGroup} txType={tx.type} onSave={cat => updateTx(tx.id, { category: cat })} readOnly={isViewing} />
                       </td>
                       <td className="hidden sm:table-cell"><span style={{ fontSize: 13, color: 'var(--text-2)' }}>{tx.account}</span></td>
-                      <td><TagPills txId={tx.id} tags={tx.tags} onUpdate={tags => updateTx(tx.id, { tags })} /></td>
+                      <td><TagPills txId={tx.id} tags={tx.tags} onUpdate={tags => updateTx(tx.id, { tags })} readOnly={isViewing} /></td>
                       <td style={{ textAlign: 'right' }}>
                         {deletingId === tx.id ? (
                           <DeleteConfirm onConfirm={() => deleteTx(tx.id)} onCancel={() => setDeletingId(null)} />
@@ -540,20 +546,22 @@ export default function TransactionsPage() {
                         )}
                       </td>
                       <td>
-                        <div className="flex items-center gap-1">
-                          <button className="btn-ghost" style={{ padding: 5 }} title="Edit"
-                            onClick={() => setEditingId(editingId === tx.id ? null : tx.id)}>
-                            <Pencil size={13} style={{ color: editingId === tx.id ? 'var(--violet)' : 'var(--text-3)' }} />
-                          </button>
-                          {deletingId !== tx.id && (
-                            <button className="btn-ghost" style={{ padding: 5 }} onClick={() => setDeletingId(tx.id)}>
-                              <Trash2 size={13} style={{ color: 'var(--text-3)' }} />
+                        {!isViewing && (
+                          <div className="flex items-center gap-1">
+                            <button className="btn-ghost" style={{ padding: 5 }} title="Edit"
+                              onClick={() => setEditingId(editingId === tx.id ? null : tx.id)}>
+                              <Pencil size={13} style={{ color: editingId === tx.id ? 'var(--violet)' : 'var(--text-3)' }} />
                             </button>
-                          )}
-                        </div>
+                            {deletingId !== tx.id && (
+                              <button className="btn-ghost" style={{ padding: 5 }} onClick={() => setDeletingId(tx.id)}>
+                                <Trash2 size={13} style={{ color: 'var(--text-3)' }} />
+                              </button>
+                            )}
+                          </div>
+                        )}
                       </td>
                     </tr>
-                    {editingId === tx.id && (
+                    {!isViewing && editingId === tx.id && (
                       <tr key={`${tx.id}-edit`}>
                         <td colSpan={6} style={{ padding: 0 }}>
                           <InlineEditPanel
