@@ -1,5 +1,8 @@
 FROM node:20-alpine AS builder
 
+# OpenSSL required by Prisma during build/type generation
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 # Copy package files

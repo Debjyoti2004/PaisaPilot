@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, Suspense } from 'react'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { useSession } from 'next-auth/react'
 import { CheckCircle, XCircle, Loader, Shield, Mail } from 'lucide-react'
@@ -12,7 +12,7 @@ interface InviteMeta {
   otpExpired: boolean
 }
 
-export default function AcceptInvitePage() {
+function AcceptInviteInner() {
   const params = useSearchParams()
   const router = useRouter()
   const { data: session, status } = useSession()
@@ -240,5 +240,20 @@ export default function AcceptInvitePage() {
         )}
       </div>
     </div>
+  )
+}
+
+export default function AcceptInvitePage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen flex items-center justify-center" style={{ background: 'var(--bg)' }}>
+        <div className="card p-10 flex flex-col items-center gap-4" style={{ maxWidth: 400, width: '100%' }}>
+          <Loader size={32} style={{ color: 'var(--violet)', animation: 'spin 1s linear infinite' }} />
+          <p style={{ fontSize: 15, color: 'var(--text-2)' }}>Loading invite…</p>
+        </div>
+      </div>
+    }>
+      <AcceptInviteInner />
+    </Suspense>
   )
 }
