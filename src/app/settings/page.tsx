@@ -293,7 +293,7 @@ function FamilySection() {
   }
 
   function closeInviteModal() {
-    setInviteOpen(false); setInviteEmail(''); setInviteError(''); setInviteSuccess('')
+    setInviteOpen(false); setInviteEmail(''); setInviteError('')
   }
 
   async function cancelInvite(inviteId: string) {
