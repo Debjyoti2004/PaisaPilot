@@ -197,7 +197,7 @@ function GroupTracker({ d }: { d: ConsoleData }) {
     <div className="card p-6">
       <div className="flex items-center justify-between mb-4">
         <div>
-          <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>Warikoo Group Tracker</h3>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>Wealth Group Tracker</h3>
           <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>Actual vs plan for each wealth group</p>
         </div>
         {!plan && (

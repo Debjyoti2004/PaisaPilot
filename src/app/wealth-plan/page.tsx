@@ -875,7 +875,7 @@ export default function WealthPlanPage() {
       <div>
         <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)' }}>Wealth Plan</h2>
         <p style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 4 }}>
-          The Warikoo formula — live, customizable, tracked against your real spending.
+          Your wealth formula — live, customizable, tracked against your real spending.
           {saving && <span style={{ fontSize: 12, color: 'var(--violet)', marginLeft: 8 }}>Saving…</span>}
         </p>
       </div>
@@ -893,7 +893,7 @@ export default function WealthPlanPage() {
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>Actual vs Plan</h3>
-            <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>How your spending tracks against the Warikoo formula</p>
+            <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>How your spending tracks against the wealth formula</p>
           </div>
           <div className="flex items-center gap-2">
             <button onClick={() => shiftMonth(-1)} style={{ width: 30, height: 30, borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-2)' }}>

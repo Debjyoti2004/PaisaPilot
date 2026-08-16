@@ -57,10 +57,17 @@ export async function GET(request: NextRequest) {
       if (start) dateFilter = { occurredAt: { gte: start, lte: end } }
     }
 
-    // Fetch period transactions
+    // Fetch period transactions — two sets:
+    // 1. Non-transfers: for income/expense totals, category charts
+    // 2. All (including transfers): for account balance widgets
     const txns = await prisma.transaction.findMany({
+      where: { userId, ...dateFilter, isTransfer: false },
+      include: { category: true, finAccount: { select: { name: true } } },
+      orderBy: { occurredAt: 'desc' },
+    })
+    const allPeriodTxns = await prisma.transaction.findMany({
       where: { userId, ...dateFilter },
-      include: { category: true },
+      include: { finAccount: { select: { id: true, name: true, type: true } } },
       orderBy: { occurredAt: 'desc' },
     })
 
@@ -70,7 +77,7 @@ export async function GET(request: NextRequest) {
 
     // Cash flow — last 7 calendar months (always from all data)
     const allTxns = await prisma.transaction.findMany({
-      where: { userId },
+      where: { userId, isTransfer: false },
       include: { category: true },
       orderBy: { occurredAt: 'desc' },
     })
@@ -108,7 +115,7 @@ export async function GET(request: NextRequest) {
       merchant: t.merchant ?? t.narration,
       date: t.occurredAt.toISOString().slice(0, 10),
       category: t.category?.name ?? 'Other',
-      account: t.account ?? 'Main Checking',
+      account: t.finAccount?.name ?? t.account ?? 'Savings Account',
       amount: t.amount,
       type: t.type === 'credit' ? 'income' : 'expense',
       tags: (() => { try { return JSON.parse(t.tags) } catch { return [] } })(),
@@ -132,26 +139,26 @@ export async function GET(request: NextRequest) {
     const needsReview = txns.filter(t => t.category?.name === 'Needs review').length
 
     // Account widgets — per-account spend/income summary for the current period
-    const enabledWidgets: string[] = (() => {
-      try { return JSON.parse(settings?.dashboardWidgets ?? '[]') } catch { return [] }
-    })()
-    type CustomAccount = { name: string; type: 'credit_card' | 'savings' | 'checking' }
-    const customAccountList: CustomAccount[] = (() => {
-      try { return JSON.parse(settings?.customAccounts ?? '[]') } catch { return [] }
-    })()
-    const getAccountType = (name: string): 'credit_card' | 'savings' | 'checking' => {
-      const custom = customAccountList.find(a => a.name === name)
-      if (custom) return custom.type
-      const n = name.toLowerCase()
-      if (n.includes('credit') || n.includes('card')) return 'credit_card'
-      if (n.includes('saving')) return 'savings'
-      return 'checking'
-    }
-    const accountWidgets = enabledWidgets.map(acctName => {
-      const acctTxns = txns.filter(t => (t.account ?? '') === acctName)
+    // Powered by FinancialAccount.showOnDash (replaces dashboardWidgets JSON)
+    const enabledAccounts = await prisma.financialAccount.findMany({
+      where: { userId, showOnDash: true },
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    })
+    const accountWidgets = enabledAccounts.map(fa => {
+      // Match transactions by accountId (migrated) or by account name string (legacy)
+      const acctTxns = allPeriodTxns.filter(t =>
+        t.accountId === fa.id || (!t.accountId && (t.finAccount?.name ?? t.account ?? '') === fa.name)
+      )
+      const debitTxns = acctTxns.filter(t => t.type === 'debit' && !t.isTransfer)
       const spend  = acctTxns.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0)
       const earned = acctTxns.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0)
-      return { account: acctName, spend, earned, type: getAccountType(acctName) }
+      const cardPaidAmt      = debitTxns.filter(t => t.cardPaid).reduce((s, t) => s + t.amount, 0)
+      const transferPayments = acctTxns.filter(t => t.type === 'credit' && t.isTransfer).reduce((s, t) => s + t.amount, 0)
+      const billed = debitTxns.reduce((s, t) => s + t.amount, 0)
+      const extraTransfer = Math.max(0, transferPayments - cardPaidAmt)
+      const paid = Math.min(billed, cardPaidAmt + extraTransfer)
+      const outstanding = Math.max(0, billed - paid)
+      return { account: fa.name, accountId: fa.id, spend, earned, type: fa.type, paid, outstanding }
     })
 
     // Persist selected period (don't save custom since we don't persist the date range)
@@ -160,7 +167,7 @@ export async function GET(request: NextRequest) {
       update: period !== 'custom' ? { selectedPeriod: period } : {},
       create: {
         userId, selectedPeriod: period !== 'custom' ? period : 'all-time',
-        expectedSalary: 37000, savingsFloor: 3000, currency: 'INR',
+        expectedSalary: 0, savingsFloor: 0, currency: 'INR',
         salaryKeywords: 'salary,credit,sal', emailReports: false, reportEmail: '',
         assetsTotal: 0, liabilitiesTotal: 0, netWorthConfigured: false, driveEnabled: false,
       },

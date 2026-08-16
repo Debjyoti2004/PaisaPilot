@@ -1,8 +1,8 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense, Fragment } from 'react'
 import { useSearchParams } from 'next/navigation'
-import { Search, ChevronDown, X, Plus, Trash2, Check, CalendarDays, AlertCircle, Pencil } from 'lucide-react'
+import { Search, ChevronDown, X, Plus, Trash2, Check, CalendarDays, AlertCircle, Pencil, ArrowLeftRight } from 'lucide-react'
 import { NEEDS_CATS, WANTS_CATS, INV_CATS, ALL_CATS, INCOME_CATS, GROUP_DEFAULT_CAT, catsForGroup } from '@/config/categories'
 import { useViewMode } from '@/contexts/ViewContext'
 import { Portal } from '@/components/Portal'
@@ -11,6 +11,7 @@ import { DatePicker } from '@/components/DatePicker'
 interface Tx {
   id: string; merchant: string; date: string; actualPaidDate?: string | null; category: string; account: string
   amount: number; type: 'income' | 'expense'; tags: string[]; wealthGroup: string | null
+  isTransfer?: boolean; cardPaid?: boolean
 }
 
 type Period = 'all-time' | 'this-month' | 'last-month' | 'last-3-months' | 'last-6-months' | 'this-year' | 'custom'
@@ -26,7 +27,6 @@ const PERIODS: { value: Period; label: string }[] = [
 
 const CATEGORIES = [...ALL_CATS, ...INCOME_CATS, 'Needs review']
 
-const BUILTIN_ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
 
 type CustomCats = { needs: string[]; wants: string[]; investments: string[] }
 const EMPTY_CUSTOM_CATS: CustomCats = { needs: [], wants: [], investments: [] }
@@ -359,16 +359,10 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
   const [customCats, setCustomCats] = useState<CustomCats>(EMPTY_CUSTOM_CATS)
   useEffect(() => { fetchCustomCats().then(setCustomCats) }, [])
 
-  const [accounts, setAccounts] = useState<string[]>(BUILTIN_ACCOUNTS)
+  const [accounts, setAccounts] = useState<{ id: string; name: string }[]>([])
   useEffect(() => {
     fetch('/api/merchants').then(r => r.json()).then(d => setOwnMerchants(d.merchants ?? []))
-    fetch('/api/settings').then(r => r.json()).then(d => {
-      try {
-        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
-        const names = custom.map(c => c.name)
-        setAccounts([...BUILTIN_ACCOUNTS, ...names.filter(n => !BUILTIN_ACCOUNTS.includes(n))])
-      } catch {}
-    })
+    fetch('/api/fin-accounts').then(r => r.json()).then(d => setAccounts(d.accounts ?? []))
   }, [])
   const [fields, setFields] = useState<EditState>({
     merchant: tx.merchant, amount: String(tx.amount), date: tx.date,
@@ -405,11 +399,14 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           id: tx.id, merchant: fields.merchant, amount: parseFloat(fields.amount),
-          date: fields.date, account: fields.account, wealthGroup: fields.wealthGroup,
+          date: fields.date, account: fields.account,
+          accountId: accounts.find(a => a.name === fields.account)?.id ?? undefined,
+          wealthGroup: fields.wealthGroup,
           category: fields.category,
         }),
       })
       onSave(fields)
+      window.dispatchEvent(new Event('paisapilot:refresh'))
     } catch {}
     setSaving(false)
   }
@@ -495,7 +492,7 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
         <div>
           <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Account</label>
           <select className="form-select" style={{ height: 36, fontSize: 13 }} value={fields.account} onChange={e => set('account', e.target.value)}>
-            {accounts.map(a => <option key={a}>{a}</option>)}
+            {accounts.map(a => <option key={a.id} value={a.name}>{a.name}</option>)}
           </select>
         </div>
         {!isIncome && (
@@ -579,7 +576,7 @@ function TransactionsPage() {
   const [period, setPeriod] = useState<Period | null>(null)
   const [customRange, setCustomRange] = useState({ start: '', end: '' })
   const [search, setSearch] = useState('')
-  const [accountFilter, setAccountFilter] = useState(() => searchParams.get('account') ?? '')
+  const [accountFilter, setAccountFilter] = useState(() => searchParams.get('accountId') ?? searchParams.get('account') ?? '')
   const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') ?? '')
   const [typeFilter, setTypeFilter] = useState(() => searchParams.get('type') ?? '')
   const [groupTab, setGroupTab] = useState('')
@@ -588,19 +585,16 @@ function TransactionsPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [tagModal, setTagModal] = useState<{ txId: string; tags: string[] } | null>(null)
-  const [accounts, setAccounts] = useState<string[]>(BUILTIN_ACCOUNTS)
+  const [finAccounts, setFinAccounts] = useState<{ id: string; name: string }[]>([])
   const [customCats, setCustomCats] = useState<CustomCats>(EMPTY_CUSTOM_CATS)
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     fetchCustomCats().then(setCustomCats)
-    fetch('/api/settings').then(r => r.json()).then(d => {
-      try {
-        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
-        const names = custom.map((c: { name: string }) => c.name)
-        setAccounts([...BUILTIN_ACCOUNTS, ...names.filter((n: string) => !BUILTIN_ACCOUNTS.includes(n))])
-      } catch {}
-    })
+    fetch('/api/fin-accounts')
+      .then(r => r.ok ? r.json() : Promise.resolve({ accounts: [] }))
+      .then(d => { if (d.accounts?.length) setFinAccounts(d.accounts) })
+      .catch(() => {})
   }, [])
 
   const load = useCallback(async (p: Period, s: string, acc: string, cat: string, type: string, gt: string, pg: number, viewAs?: string, ownerName?: string, cr?: { start: string; end: string }) => {
@@ -608,7 +602,12 @@ function TransactionsPage() {
     try {
       const params = new URLSearchParams({ period: p, page: String(pg) })
       if (s)      params.set('search', s)
-      if (acc)    params.set('account', acc)
+      // accountFilter can be an accountId (cuid) or legacy account name
+      if (acc) {
+        // If it looks like a cuid (starts with 'c' and is long), use accountId
+        if (/^c[a-z0-9]{20,}$/i.test(acc)) params.set('accountId', acc)
+        else params.set('account', acc)
+      }
       if (cat)    params.set('category', cat)
       if (gt === 'income') params.set('type', 'income')
       else if (gt)         params.set('wealthGroup', gt)
@@ -620,16 +619,27 @@ function TransactionsPage() {
       }
       const res = await fetch(`/api/transactions?${params}`)
       if (res.status === 403) { accessRevoked(ownerName ?? 'user'); return }
-      if (!res.ok) throw new Error('Failed')
+      if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error ?? 'Failed') }
       const d = await res.json()
-      setTxns(d.transactions ?? [])
+      const txList = d.transactions ?? []
+      setTxns(txList)
       setTotal(d.total ?? 0)
+      // Build filter account list from loaded transactions as fallback
+      setFinAccounts(prev => {
+        if (prev.length > 0) return prev // fin-accounts already loaded
+        const seen = new Map<string, string>()
+        for (const t of txList) {
+          const key = t.accountId ?? t.account
+          if (key && !seen.has(key)) seen.set(key, t.account)
+        }
+        return Array.from(seen.entries()).map(([id, name]) => ({ id, name }))
+      })
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load')
     } finally { setLoading(false) }
   }, [accessRevoked])
 
-  useEffect(() => { setPeriod('all-time') }, [])
+  useEffect(() => { setPeriod('this-month') }, [])
 
   useEffect(() => {
     if (period === null) return
@@ -640,7 +650,7 @@ function TransactionsPage() {
   }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, load, viewingUser?.id, customRange])
 
   useEffect(() => {
-    const handler = () => load(period ?? 'all-time', search, accountFilter, categoryFilter, typeFilter, groupTab, 1, viewingUser?.id, viewingUser?.name, customRange)
+    const handler = () => load(period ?? 'this-month', search, accountFilter, categoryFilter, typeFilter, groupTab, 1, viewingUser?.id, viewingUser?.name, customRange)
     window.addEventListener('paisapilot:refresh', handler)
     return () => window.removeEventListener('paisapilot:refresh', handler)
   }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, load, viewingUser?.id, customRange])
@@ -669,6 +679,7 @@ function TransactionsPage() {
       setTxns(prev => prev.filter(t => t.id !== id))
       setTotal(n => n - 1)
       setSelectedIds(s => { const n = new Set(s); n.delete(id); return n })
+      window.dispatchEvent(new Event('paisapilot:refresh'))
     } catch {}
     setDeletingId(null)
   }
@@ -713,7 +724,7 @@ function TransactionsPage() {
           <div className="relative" style={{ flexShrink: 0 }}>
             <select value={accountFilter} onChange={e => { setAccountFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 140 }}>
               <option value="">All accounts</option>
-              {accounts.map(a => <option key={a}>{a}</option>)}
+              {finAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
             </select>
             <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
           </div>
@@ -723,6 +734,7 @@ function TransactionsPage() {
                 <option value="">All types</option>
                 <option value="income">Income only</option>
                 <option value="expense">Expenses only</option>
+                <option value="transfer">Transfers only</option>
               </select>
               <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
             </div>
@@ -748,7 +760,7 @@ function TransactionsPage() {
             })()}
             <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
           </div>
-          <PeriodSelector value={period ?? 'all-time'} onChange={handlePeriodChange} customRange={customRange} onCustomRange={handleCustomRange} />
+          <PeriodSelector value={period ?? 'this-month'} onChange={handlePeriodChange} customRange={customRange} onCustomRange={handleCustomRange} />
         </div>
       </div>
 
@@ -795,13 +807,24 @@ function TransactionsPage() {
                   </div>
                 </td></tr>
               )}
-              {!loading && txns.map(tx => {
+              {!loading && txns.map((tx, idx) => {
                 const wgMeta = tx.wealthGroup
                   ? GROUP_BTN_META[tx.wealthGroup]
                   : (tx.type === 'income' ? GROUP_BTN_META['income'] : null)
+                const monthKey = tx.date.slice(0, 7)
+                const showMonthHeader = period === 'all-time' && (idx === 0 || monthKey !== txns[idx - 1].date.slice(0, 7))
                 return (
-                  <>
-                    <tr key={tx.id} style={{ background: editingId === tx.id ? 'var(--violet-bg)' : selectedIds.has(tx.id) ? 'var(--violet-bg)' : undefined }}>
+                  <Fragment key={tx.id}>
+                    {showMonthHeader && (
+                      <tr>
+                        <td colSpan={7} style={{ padding: '12px 16px 8px', background: 'var(--bg-2)', borderBottom: '1px solid var(--border)', borderTop: idx > 0 ? '2px solid var(--border)' : undefined }}>
+                          <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>
+                            {new Date(monthKey + '-15').toLocaleDateString('en-IN', { month: 'long', year: 'numeric' })}
+                          </span>
+                        </td>
+                      </tr>
+                    )}
+                    <tr style={{ background: editingId === tx.id ? 'var(--violet-bg)' : selectedIds.has(tx.id) ? 'var(--violet-bg)' : undefined }}>
                       <td style={{ paddingRight: 0, textAlign: 'center' }}>
                         <input type="checkbox" style={{ cursor: 'pointer', accentColor: 'var(--violet)', width: 15, height: 15 }}
                           checked={selectedIds.has(tx.id)}
@@ -827,7 +850,12 @@ function TransactionsPage() {
                                   <span style={{ color: 'var(--text-3)', opacity: 0.7 }}> (paid {tx.actualPaidDate})</span>
                                 )}
                               </p>
-                              {wgMeta && (
+                              {tx.isTransfer && (
+                                <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: 'rgba(59,130,246,0.12)', color: '#60a5fa', border: '1px solid rgba(59,130,246,0.25)', whiteSpace: 'nowrap', flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3 }}>
+                                  <ArrowLeftRight size={9} />Transfer
+                                </span>
+                              )}
+                              {!tx.isTransfer && wgMeta && (
                                 <span style={{ fontSize: 10, fontWeight: 600, padding: '1px 6px', borderRadius: 99, background: wgMeta.bg, color: wgMeta.color, border: `1px solid ${wgMeta.color}30`, whiteSpace: 'nowrap', flexShrink: 0 }}>
                                   {wgMeta.emoji} {wgMeta.label}
                                 </span>
@@ -853,12 +881,29 @@ function TransactionsPage() {
                       <td>
                         {!isViewing && (
                           <div className="flex items-center gap-1">
-                            <button className="btn-ghost" style={{ padding: 5 }} title="Edit"
-                              onClick={() => setEditingId(editingId === tx.id ? null : tx.id)}>
-                              <Pencil size={13} style={{ color: editingId === tx.id ? 'var(--violet)' : 'var(--text-3)' }} />
-                            </button>
+                            {/* Card Paid toggle — only for credit card expense transactions */}
+                            {!tx.isTransfer && tx.type === 'expense' && tx.account?.toLowerCase().includes('card') && (
+                              <button
+                                className="btn-ghost"
+                                style={{ padding: '3px 6px', borderRadius: 6, fontSize: 10, fontWeight: 700, border: `1px solid ${tx.cardPaid ? '#16a34a40' : 'var(--border)'}`, background: tx.cardPaid ? '#16a34a15' : 'transparent', color: tx.cardPaid ? '#16a34a' : 'var(--text-3)', whiteSpace: 'nowrap' }}
+                                title={tx.cardPaid ? 'Mark as unpaid' : 'Mark card bill as paid'}
+                                onClick={async () => {
+                                  const next = !tx.cardPaid
+                                  updateTx(tx.id, { cardPaid: next })
+                                  await fetch('/api/transactions', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: tx.id, cardPaid: next }) })
+                                }}
+                              >
+                                {tx.cardPaid ? '✓ Paid' : 'Mark Paid'}
+                              </button>
+                            )}
+                            {!tx.isTransfer && (
+                              <button className="btn-ghost" style={{ padding: 5 }} title="Edit"
+                                onClick={() => setEditingId(editingId === tx.id ? null : tx.id)}>
+                                <Pencil size={13} style={{ color: editingId === tx.id ? 'var(--violet)' : 'var(--text-3)' }} />
+                              </button>
+                            )}
                             {deletingId !== tx.id && (
-                              <button className="btn-ghost" style={{ padding: 5 }} onClick={() => setDeletingId(tx.id)}>
+                              <button className="btn-ghost" style={{ padding: 5 }} title={tx.isTransfer ? 'Delete both legs' : 'Delete'} onClick={() => setDeletingId(tx.id)}>
                                 <Trash2 size={13} style={{ color: 'var(--text-3)' }} />
                               </button>
                             )}
@@ -885,7 +930,7 @@ function TransactionsPage() {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 )
               })}
             </tbody>

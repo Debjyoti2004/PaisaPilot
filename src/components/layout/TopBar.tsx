@@ -139,7 +139,7 @@ export function TopBar({ title, subtitle }: TopBarProps) {
 }
 
 /* ── Add Entry Modal ─────────────────────────────────────── */
-type EntryType = 'expense' | 'income'
+type EntryType = 'expense' | 'income' | 'transfer'
 type WealthGroup = 'needs' | 'wants' | 'investments'
 
 const BASE_GROUP_CATS: Record<WealthGroup, string[]> = {
@@ -152,7 +152,6 @@ const GROUP_LABELS: Record<WealthGroup, { label: string; emoji: string; color: s
   wants:       { label: 'Wants',       emoji: '🛍️', color: '#f97316' },
   investments: { label: 'Investments', emoji: '📈', color: '#10b981' },
 }
-const BUILTIN_ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
 const CUSTOM_SENTINEL = '__custom__'
 
 type CustomCats = { needs: string[]; wants: string[]; investments: string[] }
@@ -219,11 +218,17 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
   const [tagOpen, setTagOpen] = useState(false)
   const [hasReceipt, setHasReceipt] = useState(false)
   const [receiptName, setReceiptName] = useState('')
+  const [transferFrom, setTransferFrom] = useState('')
+  const [transferTo, setTransferTo] = useState('')
+  const [balances, setBalances] = useState<{ byName: Record<string, { balance: number; outstanding: number; isCard: boolean; accountId: string | null }>; byId: Record<string, { balance: number; outstanding: number; isCard: boolean; name: string }> }>({ byName: {}, byId: {} })
+  const [unpaidBills, setUnpaidBills] = useState<{ id: string; merchant: string; narration: string; amount: number; occurredAt: string }[]>([])
+  const [selectedBills, setSelectedBills] = useState<Set<string>>(new Set())
+  const [billsLoading, setBillsLoading] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [customCats, setCustomCats] = useState<CustomCats>({ needs: [], wants: [], investments: [] })
   const [catDropOpen, setCatDropOpen] = useState(false)
-  const [accounts, setAccounts] = useState<string[]>(BUILTIN_ACCOUNTS)
+  const [accounts, setAccounts] = useState<{ id: string; name: string; type: string }[]>([])
 
   const tagSuggestions = tag.trim()
     ? allTags.filter(t => t.toLowerCase().includes(tag.trim().toLowerCase())).slice(0, 6)
@@ -235,13 +240,9 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
     apiLoadCustomCats().then(setCustomCats)
     fetch('/api/tags').then(r => r.json()).then(d => setAllTags(d.tags?.map((t: { name: string }) => t.name) ?? []))
     fetch('/api/merchants').then(r => r.json()).then(d => setOwnMerchants(d.merchants ?? []))
-    fetch('/api/settings').then(r => r.json()).then(d => {
-      try {
-        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
-        const customNames = custom.map(c => c.name)
-        const all = [...BUILTIN_ACCOUNTS, ...customNames.filter(n => !BUILTIN_ACCOUNTS.includes(n))]
-        setAccounts(all)
-      } catch {}
+    fetch('/api/fin-accounts').then(r => r.json()).then(d => {
+      setAccounts(d.accounts ?? [])
+      if (d.accounts?.length > 0) setAccount(d.accounts[0].id)
     })
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
@@ -253,10 +254,25 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
     if (group) { setCategory(BASE_GROUP_CATS[group][0]); setCustomInput(''); setCatDropOpen(false) }
   }, [group])
 
+  useEffect(() => {
+    if (!transferTo || !balances.byId[transferTo]?.isCard) {
+      setUnpaidBills([]); setSelectedBills(new Set()); return
+    }
+    setBillsLoading(true)
+    fetch(`/api/accounts/unpaid-bills?accountId=${encodeURIComponent(transferTo)}`)
+      .then(r => r.json())
+      .then(d => { setUnpaidBills(d.bills ?? []); setSelectedBills(new Set()) })
+      .catch(() => {})
+      .finally(() => setBillsLoading(false))
+  }, [transferTo, balances])
+
   function handleTypeChange(t: EntryType) {
-    setType(t)
+    setType(t); setError('')
     if (t === 'income') { setGroup(null); setCategory('Income') }
-    else { setGroup(null); setCategory('') }
+    else if (t === 'expense') { setGroup(null); setCategory('') }
+    if (t === 'transfer' && Object.keys(balances.byId).length === 0) {
+      fetch('/api/accounts/balance').then(r => r.json()).then(setBalances).catch(() => {})
+    }
   }
 
   function handleCatChange(val: string) {
@@ -265,8 +281,40 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
   }
 
   async function handleSave() {
-    if (!amount || !merchant) { setError('Amount and merchant are required.'); return }
     const amt = parseFloat(amount)
+
+    // Transfer flow
+    if (type === 'transfer') {
+      if (!transferFrom) { setError('Select a From account.'); return }
+      if (!transferTo) { setError('Select a To account.'); return }
+      if (transferFrom === transferTo) { setError('From and To accounts must be different.'); return }
+      const isCard = balances.byId[transferTo]?.isCard
+      const paidBillIds = isCard ? Array.from(selectedBills) : []
+      const transferAmt = isCard
+        ? unpaidBills.filter(b => selectedBills.has(b.id)).reduce((s, b) => s + b.amount, 0)
+        : amt
+      if (isCard && paidBillIds.length === 0) { setError('Select at least one bill to pay.'); return }
+      if (!isCard && (!isFinite(amt) || amt <= 0)) { setError('Enter a valid positive amount.'); return }
+      const fromBalance = Math.max(0, balances.byId[transferFrom]?.balance ?? 0)
+      const fromName = balances.byId[transferFrom]?.name ?? accounts.find(a => a.id === transferFrom)?.name ?? transferFrom
+      if (transferAmt > fromBalance) {
+        setError(`Insufficient balance in ${fromName}. Available: ₹${fromBalance.toLocaleString('en-IN')}`); return
+      }
+      setSaving(true); setError('')
+      try {
+        const res = await fetch('/api/transactions', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'transfer', fromAccountId: transferFrom, toAccountId: transferTo, amount: transferAmt, date, paidBillIds }),
+        })
+        if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || 'Save failed') }
+        window.dispatchEvent(new Event('paisapilot:refresh'))
+        onClose()
+      } catch (e) { setError(e instanceof Error ? e.message : 'Save failed') }
+      finally { setSaving(false) }
+      return
+    }
+
+    if (!amount || !merchant) { setError('Amount and merchant are required.'); return }
     if (!isFinite(amt) || amt <= 0) { setError('Enter a valid positive amount.'); return }
     if (type === 'expense' && !group) { setError('Please choose a category group (Needs, Wants or Investments).'); return }
     const finalCat = type === 'income'
@@ -289,7 +337,8 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({
           date, merchant: merchant.trim(), amount: amt, type,
           category: finalCat,
-          account, tags: tag.trim() ? [tag.trim()] : [],
+          accountId: account,
+          tags: tag.trim() ? [tag.trim()] : [],
           source: 'manual',
           wealthGroup: type === 'income' ? null : group,
         }),
@@ -323,14 +372,14 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
         {/* Type toggle */}
         <div className="px-6 pt-5">
           <div className="seg-track" style={{ width: '100%', borderRadius: 12 }}>
-            {(['expense','income'] as EntryType[]).map(t => (
+            {(['expense','income','transfer'] as EntryType[]).map(t => (
               <button
                 key={t}
                 className={`seg-btn flex-1 ${type === t ? 'active' : ''}`}
-                style={{ color: type === t ? (t === 'income' ? 'var(--green)' : 'var(--violet)') : undefined }}
+                style={{ color: type === t ? (t === 'income' ? 'var(--green)' : t === 'transfer' ? '#3b82f6' : 'var(--violet)') : undefined, fontSize: 13 }}
                 onClick={() => handleTypeChange(t)}
               >
-                {t === 'expense' ? 'Expense' : 'Income'}
+                {t === 'expense' ? 'Expense' : t === 'income' ? 'Income' : '⇄ Transfer'}
               </button>
             ))}
           </div>
@@ -338,8 +387,96 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
 
         {/* Form */}
         <div className="px-6 py-4 space-y-4">
-          {/* Amount + Merchant */}
-          <div className="grid grid-cols-2 gap-3">
+
+          {/* Transfer form */}
+          {type === 'transfer' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>From account</label>
+                  <select value={transferFrom} onChange={e => { setTransferFrom(e.target.value); setError('') }} className="form-input">
+                    <option value="">Select</option>
+                    {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                  {transferFrom && (
+                    <p style={{ fontSize: 11, marginTop: 4, color: (balances.byId[transferFrom]?.balance ?? 0) <= 0 ? 'var(--red,#ef4444)' : 'var(--text-3)' }}>
+                      Available: ₹{Math.max(0, balances.byId[transferFrom]?.balance ?? 0).toLocaleString('en-IN')}
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>To account</label>
+                  <select value={transferTo} onChange={e => { setTransferTo(e.target.value); setError('') }} className="form-input">
+                    <option value="">Select</option>
+                    {accounts.filter(a => a.id !== transferFrom).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </select>
+                </div>
+              </div>
+
+              {/* Credit card: bill selector */}
+              {transferTo && balances.byId[transferTo]?.isCard ? (
+                <div>
+                  <div className="flex items-center justify-between mb-2">
+                    <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)' }}>Select bills to pay</label>
+                    {unpaidBills.length > 0 && (
+                      <button style={{ fontSize: 11, color: 'var(--violet)', background: 'none', border: 'none', cursor: 'pointer', fontWeight: 600 }}
+                        onClick={() => setSelectedBills(
+                          selectedBills.size === unpaidBills.length ? new Set() : new Set(unpaidBills.map(b => b.id))
+                        )}>
+                        {selectedBills.size === unpaidBills.length ? 'Deselect all' : 'Select all'}
+                      </button>
+                    )}
+                  </div>
+                  {billsLoading ? (
+                    <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Loading bills…</p>
+                  ) : unpaidBills.length === 0 ? (
+                    <p style={{ fontSize: 12, color: 'var(--text-3)', padding: '10px 0' }}>No unpaid bills on this card.</p>
+                  ) : (
+                    <div style={{ maxHeight: 200, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 6 }}>
+                      {unpaidBills.map(bill => {
+                        const checked = selectedBills.has(bill.id)
+                        return (
+                          <label key={bill.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px', borderRadius: 8, border: `1px solid ${checked ? 'var(--violet)' : 'var(--border)'}`, background: checked ? 'var(--violet-bg)' : 'var(--surface)', cursor: 'pointer' }}>
+                            <input type="checkbox" checked={checked}
+                              onChange={() => {
+                                const next = new Set(selectedBills)
+                                checked ? next.delete(bill.id) : next.add(bill.id)
+                                setSelectedBills(next)
+                              }} style={{ accentColor: 'var(--violet)', width: 15, height: 15, flexShrink: 0 }} />
+                            <span style={{ flex: 1, fontSize: 13, color: 'var(--text-1)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{bill.merchant || bill.narration}</span>
+                            <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', flexShrink: 0 }}>₹{bill.amount.toLocaleString('en-IN')}</span>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  )}
+                  {selectedBills.size > 0 && (
+                    <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--violet)', marginTop: 8 }}>
+                      Total: ₹{unpaidBills.filter(b => selectedBills.has(b.id)).reduce((s, b) => s + b.amount, 0).toLocaleString('en-IN')}
+                      {' '}({selectedBills.size} bill{selectedBills.size > 1 ? 's' : ''})
+                    </p>
+                  )}
+                </div>
+              ) : (
+                /* Normal account: amount input */
+                <div>
+                  <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Amount</label>
+                  <div className="relative">
+                    <span style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', fontSize: 14, fontWeight: 500 }}>₹</span>
+                    <input type="text" inputMode="decimal" placeholder="0" value={fmtAmountDisplay(amount)} onChange={handleAmountChange} className="form-input" style={{ paddingLeft: 28 }} />
+                  </div>
+                </div>
+              )}
+
+              <div>
+                <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Date</label>
+                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="form-input" />
+              </div>
+            </div>
+          )}
+
+          {/* Amount + Merchant (expense/income only) */}
+          {type !== 'transfer' && <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Amount</label>
               <div className="relative">
@@ -421,10 +558,10 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
                 )}
               </div>
             </div>
-          </div>
+          </div>}
 
-          {/* Date + Account */}
-          <div className="grid grid-cols-2 gap-3">
+          {/* Date + Account (expense/income only) */}
+          {type !== 'transfer' && <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Date</label>
               <DatePicker value={date} onChange={setDate} />
@@ -433,15 +570,15 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Account</label>
               <div className="relative">
                 <select value={account} onChange={e => setAccount(e.target.value)} className="form-select">
-                  {accounts.map(a => <option key={a}>{a}</option>)}
+                  {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
                 <ChevronDown size={14} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
               </div>
             </div>
-          </div>
+          </div>}
 
-          {/* Category picker */}
-          {type === 'income' ? (
+          {/* Category picker (expense/income only) */}
+          {type !== 'transfer' && (type === 'income' ? (
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Income type</label>
               <div className="relative">
@@ -555,10 +692,9 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
                 </div>
               )}
             </>
-          )}
+          ))}
 
-          {/* Tag */}
-          <div>
+          {type !== 'transfer' && <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Tag (optional)</label>
             <div className="relative">
               <Tag size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', zIndex: 1, pointerEvents: 'none' }} />
@@ -602,25 +738,27 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
                 </div>
               )}
             </div>
-          </div>
+          </div>}
 
-          <label className="flex items-center gap-2.5 cursor-pointer" style={{ fontSize: 14, color: 'var(--text-2)' }}>
-            <input type="checkbox" checked={hasReceipt} onChange={e => setHasReceipt(e.target.checked)}
-              style={{ accentColor: 'var(--violet)', width: 16, height: 16 }} />
-            I have a receipt to attach
-          </label>
-          {hasReceipt && (
-            <div className="flex items-center justify-center gap-2 rounded-xl cursor-pointer"
-              style={{ border: `2px dashed ${receiptName ? 'var(--violet)' : 'var(--border)'}`, padding: '14px 20px', color: receiptName ? 'var(--violet)' : 'var(--text-3)', fontSize: 13, background: receiptName ? 'var(--violet-bg)' : 'transparent', transition: 'all 0.15s' }}
-              onClick={() => receiptRef.current?.click()}>
-              <Upload size={15} />
-              <span style={{ fontWeight: receiptName ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
-                {receiptName || 'Choose receipt file'}
-              </span>
-              <input ref={receiptRef} type="file" className="hidden" accept="image/*,.pdf"
-                onChange={e => setReceiptName(e.target.files?.[0]?.name ?? '')} />
-            </div>
-          )}
+          {type !== 'transfer' && <>
+            <label className="flex items-center gap-2.5 cursor-pointer" style={{ fontSize: 14, color: 'var(--text-2)' }}>
+              <input type="checkbox" checked={hasReceipt} onChange={e => setHasReceipt(e.target.checked)}
+                style={{ accentColor: 'var(--violet)', width: 16, height: 16 }} />
+              I have a receipt to attach
+            </label>
+            {hasReceipt && (
+              <div className="flex items-center justify-center gap-2 rounded-xl cursor-pointer"
+                style={{ border: `2px dashed ${receiptName ? 'var(--violet)' : 'var(--border)'}`, padding: '14px 20px', color: receiptName ? 'var(--violet)' : 'var(--text-3)', fontSize: 13, background: receiptName ? 'var(--violet-bg)' : 'transparent', transition: 'all 0.15s' }}
+                onClick={() => receiptRef.current?.click()}>
+                <Upload size={15} />
+                <span style={{ fontWeight: receiptName ? 600 : 400, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 220 }}>
+                  {receiptName || 'Choose receipt file'}
+                </span>
+                <input ref={receiptRef} type="file" className="hidden" accept="image/*,.pdf"
+                  onChange={e => setReceiptName(e.target.files?.[0]?.name ?? '')} />
+              </div>
+            )}
+          </>}
 
           {error && (
             <p style={{ fontSize: 13, color: 'var(--red)', background: 'var(--red-bg)', padding: '10px 14px', borderRadius: 8 }}>

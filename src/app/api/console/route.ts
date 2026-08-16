@@ -49,14 +49,14 @@ export async function GET(request: NextRequest) {
 
     // Fetch all transactions in period
     const txns = await prisma.transaction.findMany({
-      where: { userId, occurredAt: dateFilter ? dateFilter : undefined, type: 'debit' },
+      where: { userId, occurredAt: dateFilter ? dateFilter : undefined, type: 'debit', isTransfer: false },
       include: { category: true },
       orderBy: { occurredAt: 'desc' },
     })
 
     // Fetch incomes
     const incomeTxns = await prisma.transaction.findMany({
-      where: { userId, occurredAt: dateFilter ? dateFilter : undefined, type: 'credit' },
+      where: { userId, occurredAt: dateFilter ? dateFilter : undefined, type: 'credit', isTransfer: false },
       include: { category: true },
     })
 
@@ -92,7 +92,7 @@ export async function GET(request: NextRequest) {
 
     // Recent 5 transactions for review
     const needsReview = await prisma.transaction.findMany({
-      where: { userId, wealthGroup: null, type: 'debit', occurredAt: { gte: monthStart } },
+      where: { userId, wealthGroup: null, type: 'debit', isTransfer: false, occurredAt: { gte: monthStart } },
       include: { category: true },
       orderBy: { occurredAt: 'desc' },
       take: 5,
@@ -109,14 +109,14 @@ export async function GET(request: NextRequest) {
     // Wealth plan from DB for comparison
     const plan = await prisma.wealthPlan.findUnique({ where: { userId } })
 
-    // Build 6-month trend for spending
+    // Build 6-month trend for spending (exclude transfers so they don't double-count)
     const months: { month: string; income: number; expenses: number }[] = []
     for (let i = 5; i >= 0; i--) {
       const mStart = new Date(now.getFullYear(), now.getMonth() - i, 1)
       const mEnd   = new Date(now.getFullYear(), now.getMonth() - i + 1, 0, 23, 59, 59)
       const [inc, exp] = await Promise.all([
-        prisma.transaction.aggregate({ where: { userId, type: 'credit', occurredAt: { gte: mStart, lte: mEnd } }, _sum: { amount: true } }),
-        prisma.transaction.aggregate({ where: { userId, type: 'debit',  occurredAt: { gte: mStart, lte: mEnd } }, _sum: { amount: true } }),
+        prisma.transaction.aggregate({ where: { userId, type: 'credit', isTransfer: false, occurredAt: { gte: mStart, lte: mEnd } }, _sum: { amount: true } }),
+        prisma.transaction.aggregate({ where: { userId, type: 'debit',  isTransfer: false, occurredAt: { gte: mStart, lte: mEnd } }, _sum: { amount: true } }),
       ])
       months.push({
         month: `${mStart.toLocaleString('en-IN', { month: 'short' })} ${mStart.getFullYear()}`,

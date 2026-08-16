@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { X, Mic, MicOff, Check, ChevronLeft, IndianRupee, Pencil } from 'lucide-react'
+import { X, Mic, MicOff, Check, ChevronLeft, IndianRupee, Pencil, ArrowLeftRight } from 'lucide-react'
 import { formatINR } from '@/lib/finance'
 import { DatePicker } from '@/components/DatePicker'
 
@@ -69,6 +69,14 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
   const [error, setError] = useState('')
   const [isListening, setIsListening] = useState(false)
   const [suggestedName, setSuggestedName] = useState<string | null>(null)
+  const [isTransfer, setIsTransfer] = useState(false)
+  const [transferFrom, setTransferFrom] = useState('')
+  const [transferTo, setTransferTo] = useState('')
+  const [accounts, setAccounts] = useState<{ id: string; name: string; type: string }[]>([])
+  const [balances, setBalances] = useState<{ byName: Record<string, { balance: number; outstanding: number; isCard: boolean }>; byId: Record<string, { balance: number; outstanding: number; isCard: boolean; name: string }> }>({ byName: {}, byId: {} })
+  const [unpaidBills, setUnpaidBills] = useState<{ id: string; merchant: string; narration: string; amount: number }[]>([])
+  const [selectedBills, setSelectedBills] = useState<Set<string>>(new Set())
+  const [billsLoading, setBillsLoading] = useState(false)
   const amountRef = useRef<HTMLInputElement>(null)
   const recognitionRef = useRef<SpeechRecognition | null>(null)
 
@@ -76,6 +84,8 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
   useEffect(() => {
     if (!isOpen) return
     fetch('/api/categories').then(r => r.json()).then(d => setCategories(d.categories || [])).catch(() => {})
+    fetch('/api/fin-accounts').then(r => r.json()).then(d => setAccounts(d.accounts ?? [])).catch(() => {})
+    fetch('/api/accounts/balance').then(r => r.json()).then(setBalances).catch(() => {})
   }, [isOpen])
 
   // Pre-fill for edit mode
@@ -97,6 +107,11 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
       setSelectedParentId(null)
       setTxType('debit')
       setDate(new Date().toISOString().split('T')[0])
+      setIsTransfer(false)
+      setTransferFrom('')
+      setTransferTo('')
+      setUnpaidBills([])
+      setSelectedBills(new Set())
       setError('')
     }
   }, [isOpen, transaction])
@@ -130,6 +145,19 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
     return () => window.removeEventListener('keydown', h)
   }, [isOpen, onClose])
 
+  // Load unpaid bills when a credit card is selected as To account
+  useEffect(() => {
+    if (!transferTo || !balances.byId[transferTo]?.isCard) {
+      setUnpaidBills([]); setSelectedBills(new Set()); return
+    }
+    setBillsLoading(true)
+    fetch(`/api/accounts/unpaid-bills?accountId=${encodeURIComponent(transferTo)}`)
+      .then(r => r.json())
+      .then(d => { setUnpaidBills(d.bills ?? []); setSelectedBills(new Set()) })
+      .catch(() => {})
+      .finally(() => setBillsLoading(false))
+  }, [transferTo, balances])
+
   const startVoice = useCallback(() => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SR) { alert('Voice input not supported in this browser'); return }
@@ -155,7 +183,42 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
   const handleSubmit = useCallback(async () => {
     setError('')
     const parsedAmt = parseFloat(amount)
-    if (!parsedAmt || parsedAmt <= 0) { setError('Enter a valid amount'); return }
+
+    // Transfer flow
+    if (isTransfer) {
+      if (!transferFrom) { setError('Select a From account'); return }
+      if (!transferTo) { setError('Select a To account'); return }
+      if (transferFrom === transferTo) { setError('From and To accounts must be different'); return }
+      const isCard = balances.byId[transferTo]?.isCard
+      const paidBillIds = isCard ? Array.from(selectedBills) : []
+      const transferAmt = isCard
+        ? unpaidBills.filter(b => selectedBills.has(b.id)).reduce((s, b) => s + b.amount, 0)
+        : parsedAmt
+      if (isCard && paidBillIds.length === 0) { setError('Select at least one bill to pay.'); return }
+      if (!isCard && (!parsedAmt || parsedAmt <= 0)) { setError('Enter a valid amount'); return }
+      const fromBalance = Math.max(0, balances.byId[transferFrom]?.balance ?? 0)
+      const fromName = balances.byId[transferFrom]?.name ?? accounts.find(a => a.id === transferFrom)?.name ?? transferFrom
+      if (transferAmt > fromBalance) {
+        setError(`Insufficient balance in ${fromName}. Available: ₹${fromBalance.toLocaleString('en-IN')}`); return
+      }
+      setIsSubmitting(true)
+      try {
+        const res = await fetch('/api/transactions', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ type: 'transfer', fromAccountId: transferFrom, toAccountId: transferTo, amount: transferAmt, date, note: note || null, paidBillIds }),
+        })
+        if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'Failed') }
+        setStep('success')
+        setTimeout(() => { onSuccess?.(); onClose() }, 1500)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : 'Something went wrong')
+      } finally {
+        setIsSubmitting(false)
+      }
+      return
+    }
+
     if (!selectedCategoryId) { setError('Select a category'); return }
     if (!narration.trim()) { setError('Enter a description'); return }
 
@@ -245,16 +308,23 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
               {/* Type toggle */}
               <div className="flex gap-1.5 p-1 bg-white/[0.04] rounded-xl border border-white/[0.06] mb-4">
                 <button
-                  onClick={() => setTxType('debit')}
-                  className={`flex-1 py-2 rounded-lg text-[13px] font-semibold transition-all ${txType === 'debit' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'text-slate-500 hover:text-slate-300'}`}
+                  onClick={() => { setTxType('debit'); setIsTransfer(false) }}
+                  className={`flex-1 py-2 rounded-lg text-[13px] font-semibold transition-all ${!isTransfer && txType === 'debit' ? 'bg-red-500/20 text-red-400 border border-red-500/30' : 'text-slate-500 hover:text-slate-300'}`}
                 >
                   Expense
                 </button>
                 <button
-                  onClick={() => setTxType('credit')}
-                  className={`flex-1 py-2 rounded-lg text-[13px] font-semibold transition-all ${txType === 'credit' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'text-slate-500 hover:text-slate-300'}`}
+                  onClick={() => { setTxType('credit'); setIsTransfer(false) }}
+                  className={`flex-1 py-2 rounded-lg text-[13px] font-semibold transition-all ${!isTransfer && txType === 'credit' ? 'bg-green-500/20 text-green-400 border border-green-500/30' : 'text-slate-500 hover:text-slate-300'}`}
                 >
                   Income
+                </button>
+                <button
+                  onClick={() => setIsTransfer(true)}
+                  className={`flex-1 py-2 rounded-lg text-[13px] font-semibold transition-all flex items-center justify-center gap-1 ${isTransfer ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' : 'text-slate-500 hover:text-slate-300'}`}
+                >
+                  <ArrowLeftRight size={12} />
+                  Transfer
                 </button>
               </div>
 
@@ -322,16 +392,100 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
                 ))}
               </div>
 
+              {/* Transfer: From/To account pickers inline */}
+              {isTransfer && canProceed && (
+                <div className="space-y-2 mb-3">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1">From account</p>
+                    <select
+                      value={transferFrom}
+                      onChange={e => { setTransferFrom(e.target.value); setError('') }}
+                      className="w-full bg-white/[0.05] border border-white/[0.1] rounded-xl px-3 py-2.5 text-[13px] text-white"
+                    >
+                      <option value="">Select account</option>
+                      {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                    {transferFrom && (
+                      <p className={`text-[10px] mt-1 ${(balances.byId[transferFrom]?.balance ?? 0) <= 0 ? 'text-red-400' : 'text-slate-500'}`}>
+                        Available: ₹{Math.max(0, balances.byId[transferFrom]?.balance ?? 0).toLocaleString('en-IN')}
+                      </p>
+                    )}
+                  </div>
+                  <div>
+                    <p className="text-[10px] uppercase tracking-widest text-slate-600 mb-1">To account</p>
+                    <select
+                      value={transferTo}
+                      onChange={e => { setTransferTo(e.target.value); setError('') }}
+                      className="w-full bg-white/[0.05] border border-white/[0.1] rounded-xl px-3 py-2.5 text-[13px] text-white"
+                    >
+                      <option value="">Select account</option>
+                      {accounts.filter(a => a.id !== transferFrom).map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </select>
+                  </div>
+
+                  {/* Bill selector for credit card destination */}
+                  {transferTo && balances.byId[transferTo]?.isCard && (
+                    <div>
+                      <div className="flex items-center justify-between mb-1">
+                        <p className="text-[10px] uppercase tracking-widest text-slate-600">Select bills to pay</p>
+                        {unpaidBills.length > 0 && (
+                          <button className="text-[10px] text-indigo-400 font-semibold" style={{ background: 'none', border: 'none', cursor: 'pointer' }}
+                            onClick={() => setSelectedBills(
+                              selectedBills.size === unpaidBills.length ? new Set() : new Set(unpaidBills.map(b => b.id))
+                            )}>
+                            {selectedBills.size === unpaidBills.length ? 'Deselect all' : 'Select all'}
+                          </button>
+                        )}
+                      </div>
+                      {billsLoading ? (
+                        <p className="text-[11px] text-slate-500">Loading…</p>
+                      ) : unpaidBills.length === 0 ? (
+                        <p className="text-[11px] text-slate-500">No unpaid bills.</p>
+                      ) : (
+                        <div style={{ maxHeight: 160, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4 }}>
+                          {unpaidBills.map(bill => {
+                            const checked = selectedBills.has(bill.id)
+                            return (
+                              <label key={bill.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 10, border: `1px solid ${checked ? '#6366f1' : 'rgba(255,255,255,0.08)'}`, background: checked ? 'rgba(99,102,241,0.15)' : 'rgba(255,255,255,0.03)', cursor: 'pointer' }}>
+                                <input type="checkbox" checked={checked}
+                                  onChange={() => {
+                                    const next = new Set(selectedBills)
+                                    checked ? next.delete(bill.id) : next.add(bill.id)
+                                    setSelectedBills(next)
+                                  }} style={{ accentColor: '#6366f1', width: 14, height: 14, flexShrink: 0 }} />
+                                <span className="text-[12px] text-white flex-1 truncate">{bill.merchant || bill.narration}</span>
+                                <span className="text-[12px] font-semibold text-white">₹{bill.amount.toLocaleString('en-IN')}</span>
+                              </label>
+                            )
+                          })}
+                        </div>
+                      )}
+                      {selectedBills.size > 0 && (
+                        <p className="text-[11px] text-indigo-400 font-semibold mt-1">
+                          Total: ₹{unpaidBills.filter(b => selectedBills.has(b.id)).reduce((s, b) => s + b.amount, 0).toLocaleString('en-IN')}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
-                onClick={() => { if (canProceed) setStep(txType === 'credit' ? 'details' : 'category') }}
+                onClick={() => {
+                  if (!canProceed) return
+                  if (isTransfer) { handleSubmit(); return }
+                  setStep(txType === 'credit' ? 'details' : 'category')
+                }}
                 disabled={!canProceed}
                 className={`w-full py-3.5 rounded-2xl font-bold text-[15px] transition-all disabled:opacity-30 disabled:cursor-not-allowed ${
-                  txType === 'debit'
+                  isTransfer
+                    ? 'bg-blue-600 hover:bg-blue-500 text-white shadow-lg shadow-blue-500/20'
+                    : txType === 'debit'
                     ? 'bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/20'
                     : 'bg-green-600 hover:bg-green-500 text-white shadow-lg shadow-green-500/20'
                 }`}
               >
-                Continue →
+                {isTransfer ? 'Transfer →' : 'Continue →'}
               </button>
             </div>
           )}

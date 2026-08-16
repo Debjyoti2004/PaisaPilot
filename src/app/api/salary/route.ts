@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
     }
 
     const settings = await prisma.appSettings.findUnique({ where: { userId } })
-    const expectedSalary = settings?.expectedSalary ?? 37000
+    const expectedSalary = settings?.expectedSalary ?? 0
 
     const rules: SplitRuleInput[] = config.rules.map(rule => ({
       id: rule.id, categoryId: rule.categoryId, categoryName: rule.category.name,

@@ -30,7 +30,7 @@ interface DashboardData {
   netWorth: { assets: number; liabilities: number; value: number } | null
   comingUp: { id: string; name: string; category: string; amount: number; nextDate: string; cadence: string }[]
   needsReview: number
-  accountWidgets: { account: string; spend: number; earned: number; type: string }[]
+  accountWidgets: { account: string; accountId: string | null; spend: number; earned: number; type: string; paid: number; outstanding: number }[]
   savedPeriod: string
 }
 
@@ -247,7 +247,7 @@ function SummaryCards({ data }: { data: DashboardData }) {
 
 // ── Cash Flow Chart ─────────────────────────────────────────────
 function CashFlowChart({ data }: { data: DashboardData['cashFlow'] }) {
-  const hasData = data.some(d => d.income > 0 || d.spending > 0)
+  const hasData = (data ?? []).some(d => d.income > 0 || d.spending > 0)
 
   return (
     <div className="card p-6">
@@ -542,11 +542,17 @@ function AccountCardScroller({ widgets }: { widgets: DashboardData['accountWidge
         {widgets.map(w => {
           const isCard   = w.type === 'credit_card'
           const topColor = isCard ? '#f97316' : w.type === 'savings' ? '#3b82f6' : '#8b5cf6'
-          const remaining = w.earned - w.spend
-          const remColor  = remaining > 0 ? '#16a34a' : remaining < 0 ? '#dc2626' : 'var(--text-3)'
-          const remLabel  = remaining >= 0 ? 'Remaining' : 'Deficit this period'
+
+          // Credit cards: show outstanding (unpaid charges) as main figure
+          // Other accounts: show remaining (earned - spend)
+          const mainAmt   = isCard ? w.outstanding : (w.earned - w.spend)
+          const mainColor = isCard
+            ? (w.outstanding > 0 ? '#dc2626' : '#16a34a')
+            : (mainAmt >= 0 ? '#16a34a' : '#dc2626')
+          const mainLabel = isCard ? 'Outstanding' : (mainAmt >= 0 ? 'Remaining' : 'Deficit')
+
           return (
-            <Link key={w.account} href={`/transactions?account=${encodeURIComponent(w.account)}`} style={{ textDecoration: 'none', flexShrink: 0, width: 210 }}>
+            <Link key={w.account} href={w.accountId ? `/transactions?accountId=${w.accountId}` : `/transactions?account=${encodeURIComponent(w.account)}`} style={{ textDecoration: 'none', flexShrink: 0, width: 210 }}>
               <div style={{
                 background: 'var(--surface)', border: '1px solid var(--border)',
                 borderTop: `3px solid ${topColor}`, borderRadius: 12,
@@ -561,25 +567,40 @@ function AccountCardScroller({ widgets }: { widgets: DashboardData['accountWidge
                   <ArrowUpRight size={13} style={{ color: 'var(--text-3)', opacity: 0.6, flexShrink: 0 }} />
                 </div>
 
-                {/* Remaining (main) */}
-                <p className="num" style={{ fontSize: 20, fontWeight: 800, color: remColor, lineHeight: 1.1 }}>
-                  {remaining < 0 ? '−' : ''}{fmtFull(Math.abs(remaining))}
+                {/* Main figure */}
+                <p className="num" style={{ fontSize: 20, fontWeight: 800, color: mainColor, lineHeight: 1.1 }}>
+                  {!isCard && mainAmt < 0 ? '−' : ''}{fmtFull(Math.abs(mainAmt))}
                 </p>
-                <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2, marginBottom: 8 }}>{remLabel}</p>
+                <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2, marginBottom: 8 }}>{mainLabel}</p>
 
                 {/* Divider */}
                 <div style={{ height: 1, background: 'var(--border)', marginBottom: 7 }} />
 
-                {/* Income + Spent */}
+                {/* Bottom row */}
                 <div style={{ display: 'flex', gap: 12 }}>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>In</p>
-                    <p className="num" style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtFull(w.earned)}</p>
-                  </div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Out</p>
-                    <p className="num" style={{ fontSize: 11, fontWeight: 700, color: '#ea580c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtFull(w.spend)}</p>
-                  </div>
+                  {isCard ? (
+                    <>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Billed</p>
+                        <p className="num" style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-2)', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtFull(w.spend)}</p>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Paid</p>
+                        <p className="num" style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtFull(w.paid)}</p>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>In</p>
+                        <p className="num" style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtFull(w.earned)}</p>
+                      </div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Out</p>
+                        <p className="num" style={{ fontSize: 11, fontWeight: 700, color: '#ea580c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtFull(w.spend)}</p>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </Link>
@@ -602,85 +623,43 @@ function AccountCardScroller({ widgets }: { widgets: DashboardData['accountWidge
 }
 
 // ── Account Widgets ─────────────────────────────────────────────
-const BUILTIN_ACCOUNT_LIST = [
-  { name: 'Savings Account', type: 'savings'     as const },
-  { name: 'Salary Account',  type: 'savings'     as const },
-  { name: 'Cash',            type: 'checking'    as const },
-  { name: 'Credit Card',     type: 'credit_card' as const },
-  { name: 'Debit Card',      type: 'credit_card' as const },
-]
-type AccType = 'credit_card' | 'savings' | 'checking'
-type AccEntry = { name: string; type: AccType }
+type FinAccEntry = { id: string; name: string; type: string; showOnDash: boolean }
 
 function AccountWidgets({ widgets, onRefresh }: {
   widgets: DashboardData['accountWidgets']
   onRefresh: () => void
 }) {
   const [manageOpen, setManageOpen] = useState(false)
-  const [enabled, setEnabled]       = useState<string[]>([])
-  const [allAccounts, setAllAccounts] = useState<AccEntry[]>(BUILTIN_ACCOUNT_LIST)
+  const [allAccounts, setAllAccounts] = useState<FinAccEntry[]>([])
   const [addingNew, setAddingNew]   = useState(false)
   const [newName, setNewName]       = useState('')
-  const [newType, setNewType]       = useState<AccType>('checking')
+  const [newType, setNewType]       = useState('savings')
 
-  useEffect(() => {
-    fetch('/api/settings').then(r => r.json()).then(d => {
-      try {
-        const ew: string[]   = JSON.parse(d.settings?.dashboardWidgets ?? '[]')
-        const ca: AccEntry[] = JSON.parse(d.settings?.customAccounts   ?? '[]')
-        setEnabled(ew)
-        const customNames = ca.map(c => c.name)
-        setAllAccounts([...BUILTIN_ACCOUNT_LIST, ...ca.filter(c => !BUILTIN_ACCOUNT_LIST.find(b => b.name === c.name))])
-        void customNames
-      } catch {}
-    })
+  const loadAccounts = useCallback(() => {
+    fetch('/api/fin-accounts').then(r => r.json()).then(d => setAllAccounts(d.accounts ?? []))
   }, [])
 
-  async function save(next: string[]) {
-    setEnabled(next)
-    await fetch('/api/settings', {
+  useEffect(() => { if (manageOpen) loadAccounts() }, [manageOpen, loadAccounts])
+
+  async function toggle(id: string, current: boolean) {
+    setAllAccounts(prev => prev.map(a => a.id === id ? { ...a, showOnDash: !current } : a))
+    await fetch('/api/fin-accounts', {
       method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ dashboardWidgets: next }),
+      body: JSON.stringify({ id, showOnDash: !current }),
     })
     onRefresh()
-  }
-
-  function toggle(name: string) {
-    save(enabled.includes(name) ? enabled.filter(a => a !== name) : [...enabled, name])
   }
 
   async function addCustom() {
     const n = newName.trim()
     if (!n) return
-    const existing = allAccounts.find(a => a.name.toLowerCase() === n.toLowerCase())
-    if (!existing) {
-      const newEntry: AccEntry = { name: n, type: newType }
-      const nextAll = [...allAccounts, newEntry]
-      setAllAccounts(nextAll)
-      const custom = nextAll.filter(a => !BUILTIN_ACCOUNT_LIST.find(b => b.name === a.name))
-      await fetch('/api/settings', {
-        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ customAccounts: custom }),
-      })
-    }
-    save([...enabled, n])
-    setNewName(''); setAddingNew(false)
-  }
-
-  async function removeCustom(name: string) {
-    const nextAll = allAccounts.filter(a => a.name !== name)
-    setAllAccounts(nextAll)
-    const nextEnabled = enabled.filter(a => a !== name)
-    setEnabled(nextEnabled)
-    const custom = nextAll.filter(a => !BUILTIN_ACCOUNT_LIST.find(b => b.name === a.name))
-    await fetch('/api/settings', {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ customAccounts: custom, dashboardWidgets: nextEnabled }),
+    await fetch('/api/fin-accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: n, type: newType }),
     })
-    onRefresh()
+    setNewName(''); setAddingNew(false)
+    loadAccounts(); onRefresh()
   }
-
-  const enabledWidgets = widgets.filter(w => enabled.includes(w.account))
 
   return (
     <div className="card p-6">
@@ -701,25 +680,19 @@ function AccountWidgets({ widgets, onRefresh }: {
           <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', marginBottom: 12, flexShrink: 0 }}>Toggle accounts to show on dashboard</p>
           <div className="space-y-2" style={{ overflowY: 'auto', flex: 1, paddingRight: 4, marginBottom: 4 }}>
             {allAccounts.map(acct => {
-              const on = enabled.includes(acct.name)
-              const isCustom = !BUILTIN_ACCOUNT_LIST.find(b => b.name === acct.name)
+              const on = acct.showOnDash
               const typeColor = acct.type === 'credit_card' ? '#ea580c' : acct.type === 'savings' ? '#2563eb' : '#7c3aed'
-              const typeLabel = acct.type === 'credit_card' ? 'Card' : acct.type === 'savings' ? 'Savings' : 'Checking'
+              const typeLabel = acct.type === 'credit_card' ? 'Card' : acct.type === 'savings' ? 'Savings' : acct.type === 'salary' ? 'Salary' : acct.type === 'cash' ? 'Cash' : 'Checking'
+              const icon = acct.type === 'credit_card' ? '💳' : acct.type === 'savings' ? '🏦' : acct.type === 'salary' ? '💰' : acct.type === 'cash' ? '💵' : '🏧'
               return (
-                <div key={acct.name} className="flex items-center justify-between px-3 py-2 rounded-xl"
-                  style={{ background: on ? 'var(--violet-bg)' : 'var(--surface)', border: '1px solid var(--border)', cursor: 'pointer' }}
-                  onClick={() => toggle(acct.name)}>
-                  <div className="flex items-center gap-2">
-                    <span style={{ fontSize: 16 }}>{acct.type === 'credit_card' ? '💳' : acct.type === 'savings' ? '🏦' : '🏧'}</span>
-                    <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-1)' }}>{acct.name}</span>
-                    <span style={{ fontSize: 10, fontWeight: 700, color: typeColor, background: on ? 'rgba(255,255,255,0.6)' : 'var(--bg)', padding: '1px 6px', borderRadius: 5 }}>{typeLabel}</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    {isCustom && (
-                      <button onClick={e => { e.stopPropagation(); removeCustom(acct.name) }}
-                        style={{ background: 'none', border: 'none', color: 'var(--text-3)', cursor: 'pointer', fontSize: 15, lineHeight: 1, padding: '1px 4px' }}>×</button>
-                    )}
-                    {/* Toggle pill */}
+                <div key={acct.id} className="rounded-xl" style={{ background: on ? 'var(--violet-bg)' : 'var(--surface)', border: '1px solid var(--border)' }}
+                  onClick={() => toggle(acct.id, acct.showOnDash)}>
+                  <div className="flex items-center justify-between px-3 py-2" style={{ cursor: 'pointer' }}>
+                    <div className="flex items-center gap-2">
+                      <span style={{ fontSize: 16 }}>{icon}</span>
+                      <span style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-1)' }}>{acct.name}</span>
+                      <span style={{ fontSize: 10, fontWeight: 700, color: typeColor, background: on ? 'rgba(255,255,255,0.6)' : 'var(--bg)', padding: '1px 6px', borderRadius: 5 }}>{typeLabel}</span>
+                    </div>
                     <div style={{ width: 36, height: 20, borderRadius: 10, padding: 2, background: on ? 'var(--violet)' : 'var(--bg-3)', display: 'flex', alignItems: 'center', justifyContent: on ? 'flex-end' : 'flex-start', transition: 'all 0.15s', flexShrink: 0 }}>
                       <div style={{ width: 16, height: 16, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 2px rgba(0,0,0,0.2)' }} />
                     </div>
@@ -733,10 +706,12 @@ function AccountWidgets({ widgets, onRefresh }: {
             <div className="flex gap-2 mt-3">
               <input autoFocus className="form-input" placeholder="Account name" value={newName} onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && addCustom()} style={{ flex: 1, height: 36, fontSize: 13 }} />
-              <select className="form-select" value={newType} onChange={e => setNewType(e.target.value as AccType)} style={{ width: 130, height: 36, fontSize: 13 }}>
-                <option value="credit_card">💳 Card</option>
+              <select className="form-select" value={newType} onChange={e => setNewType(e.target.value)} style={{ width: 130, height: 36, fontSize: 13 }}>
                 <option value="savings">🏦 Savings</option>
-                <option value="checking">🏧 Checking</option>
+                <option value="salary">💰 Salary</option>
+                <option value="cash">💵 Cash</option>
+                <option value="credit_card">💳 Card</option>
+                <option value="debit_card">🏧 Debit</option>
               </select>
               <button className="btn-primary" style={{ fontSize: 13, padding: '0 14px', height: 36 }} onClick={addCustom}>Add</button>
               <button className="btn-ghost" style={{ fontSize: 13, height: 36 }} onClick={() => { setAddingNew(false); setNewName('') }}>Cancel</button>
@@ -749,13 +724,13 @@ function AccountWidgets({ widgets, onRefresh }: {
       )}
 
       {/* Cards — horizontal scrollable row */}
-      {enabledWidgets.length === 0 && !manageOpen ? (
+      {widgets.length === 0 && !manageOpen ? (
         <div className="empty-state" style={{ padding: '20px 0' }}>
           <p style={{ fontSize: 13, color: 'var(--text-3)' }}>No accounts enabled.</p>
           <button className="btn-ghost mt-2" style={{ fontSize: 12 }} onClick={() => setManageOpen(true)}>⚙ Add accounts</button>
         </div>
-      ) : enabledWidgets.length > 0 ? (
-        <AccountCardScroller widgets={enabledWidgets} />
+      ) : widgets.length > 0 ? (
+        <AccountCardScroller widgets={widgets} />
       ) : null}
     </div>
   )
@@ -802,6 +777,7 @@ export default function DashboardPage() {
         if (viewingUser?.id) params.set('viewAs', viewingUser.id)
         const res = await fetch(`/api/dashboard?${params}`)
         if (res.status === 403) { accessRevoked(viewingUser?.name ?? 'user'); setLoading(false); return }
+        if (!res.ok) throw new Error('Failed to load dashboard')
         const d = await res.json()
         const saved = (isViewing ? 'all-time' : (d.savedPeriod ?? 'all-time')) as Period
         setPeriod(saved)

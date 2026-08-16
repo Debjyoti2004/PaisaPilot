@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef } from 'react'
-import { Upload, FileText, CheckCircle, XCircle, X, AlertCircle, ArrowRight, ChevronLeft, Diff } from 'lucide-react'
+import { useState, useRef, useEffect } from 'react'
+import { Upload, FileText, CheckCircle, XCircle, X, AlertCircle, ArrowRight, ChevronLeft, Diff, ChevronDown } from 'lucide-react'
 import { DownloadMenu } from '@/components/DownloadMenu'
 
 interface CsvRow {
@@ -118,7 +118,17 @@ export default function BankComparePage() {
   const [comparing, setComparing] = useState(false)
   const [results, setResults]     = useState<MatchResult[] | null>(null)
   const [fileMeta, setFileMeta]   = useState<FileMeta | null>(null)
+  const [finAccounts, setFinAccounts] = useState<{ id: string; name: string }[]>([])
+  const [accountId, setAccountId]     = useState('')
   const fileRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => {
+    fetch('/api/fin-accounts').then(r => r.json()).then(d => {
+      const accs = d.accounts ?? []
+      setFinAccounts(accs)
+      if (accs.length > 0) setAccountId(accs[0].id)
+    }).catch(() => {})
+  }, [])
 
   async function handleFile(file: File) {
     const isPDF = file.name.toLowerCase().endsWith('.pdf') || file.type === 'application/pdf'
@@ -160,7 +170,7 @@ export default function BankComparePage() {
       const res = await fetch('/api/bank-compare', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ rows: csvRows }),
+        body: JSON.stringify({ rows: csvRows, accountId: accountId || undefined }),
       })
       const d = await res.json()
       if (!res.ok) throw new Error(d.error ?? 'Comparison failed')
@@ -216,11 +226,29 @@ export default function BankComparePage() {
             </p>
           </div>
 
+          {/* Account selector */}
+          <div className="flex items-center gap-3" style={{ marginTop: 20 }}>
+            <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)', flexShrink: 0 }}>Compare against account</label>
+            <div className="relative" style={{ maxWidth: 280 }}>
+              <select value={accountId} onChange={e => setAccountId(e.target.value)} className="form-select"
+                style={{ color: 'var(--text-1)' }}>
+                {finAccounts.length === 0
+                  ? <option value="">Loading accounts…</option>
+                  : <>
+                      <option value="">All accounts</option>
+                      {finAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                    </>
+                }
+              </select>
+              <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
+          </div>
+
           {/* Upload area */}
           <div
             className="card"
             style={{
-              marginTop: 20, padding: '40px 24px', textAlign: 'center',
+              marginTop: 16, padding: '40px 24px', textAlign: 'center',
               cursor: csvRows.length > 0 || parsing ? 'default' : 'pointer',
               border: `2px dashed ${csvRows.length > 0 ? 'var(--violet)' : 'var(--border)'}`,
               background: csvRows.length > 0 ? 'var(--violet-bg)' : 'rgba(255,255,255,0.5)',
