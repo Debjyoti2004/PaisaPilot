@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
-import { X, Info, CheckCircle, AlertTriangle, AlertCircle, Trash2, CheckCheck, Bell, Zap } from 'lucide-react'
+import { X, Info, CheckCircle, AlertTriangle, AlertCircle, Trash2, CheckCheck, Bell } from 'lucide-react'
 
 interface Notification {
   id: string
@@ -69,18 +69,6 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
     } finally {
       setLoading(false)
     }
-  }
-
-  const sendTestNotification = async () => {
-    const TESTS = [
-      { title: 'Monthly budget alert', message: 'You\'ve spent ₹28,450 this month — 82% of your ₹35,000 budget. You have ₹6,550 left for the remaining 9 days.', type: 'warning' },
-      { title: 'Investment milestone reached!', message: 'Your ELSS SIP crossed ₹1,00,000 total invested. Keep it up — you\'re on track for your 2028 goal.', type: 'success' },
-      { title: 'Statement imported from Drive', message: '34 new transactions synced from HDFC_July2026.csv. 2 duplicates were skipped automatically.', type: 'info' },
-      { title: 'Unusual spending detected', message: 'Your "Wants" category is 140% of plan this month (₹14,200 vs plan ₹10,000). Review your recent transactions.', type: 'error' },
-    ]
-    const t = TESTS[Math.floor(Math.random() * TESTS.length)]!
-    await fetch('/api/notifications', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(t) })
-    fetchNotifications()
   }
 
   const markAllRead = async () => {
@@ -288,23 +276,16 @@ export default function NotificationPanel({ isOpen, onClose }: NotificationPanel
         </div>
 
         {/* Footer */}
-        <div style={{
-          padding: '10px 12px', borderTop: '1px solid rgba(0,0,0,0.06)',
-          background: 'rgba(255,255,255,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-        }}>
-          <p style={{ fontSize: 11, color: 'var(--text-3)' }}>
-            {sorted.length > 0 ? `${sorted.length} notification${sorted.length !== 1 ? 's' : ''} · tap to mark read` : 'No notifications'}
-          </p>
-          <button onClick={sendTestNotification} style={{
-            display: 'flex', alignItems: 'center', gap: 4, background: 'none', border: 'none',
-            cursor: 'pointer', color: 'var(--text-3)', fontSize: 11, fontWeight: 500, padding: '3px 6px',
-            borderRadius: 6, transition: 'color 0.1s',
-          }}
-          onMouseEnter={e => { e.currentTarget.style.color = 'var(--violet)' }}
-          onMouseLeave={e => { e.currentTarget.style.color = 'var(--text-3)' }}>
-            <Zap size={10} /> Test
-          </button>
-        </div>
+        {sorted.length > 0 && (
+          <div style={{
+            padding: '10px 16px', borderTop: '1px solid rgba(0,0,0,0.06)',
+            background: 'rgba(255,255,255,0.5)',
+          }}>
+            <p style={{ fontSize: 11, color: 'var(--text-3)' }}>
+              {sorted.length} notification{sorted.length !== 1 ? 's' : ''} · tap unread to mark read
+            </p>
+          </div>
+        )}
       </div>
     </>
   )

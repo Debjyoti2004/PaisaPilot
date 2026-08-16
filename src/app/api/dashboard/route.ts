@@ -45,10 +45,17 @@ export async function GET(request: NextRequest) {
     const userId = await getEffectiveUserId(request, { allowViewAs: true })
     const { searchParams } = new URL(request.url)
     const period = searchParams.get('period') ?? 'all-time'
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
 
     const settings = await prisma.appSettings.findUnique({ where: { userId } })
-    const { start, end } = getPeriodRange(period, settings?.salaryCarryover ?? false)
-    const dateFilter = start ? { occurredAt: { gte: start, lte: end } } : {}
+    let dateFilter: { occurredAt?: { gte: Date; lte: Date } } = {}
+    if (period === 'custom' && startDate && endDate) {
+      dateFilter = { occurredAt: { gte: new Date(startDate + 'T00:00:00'), lte: new Date(endDate + 'T23:59:59') } }
+    } else {
+      const { start, end } = getPeriodRange(period, settings?.salaryCarryover ?? false)
+      if (start) dateFilter = { occurredAt: { gte: start, lte: end } }
+    }
 
     // Fetch period transactions
     const txns = await prisma.transaction.findMany({
@@ -124,12 +131,35 @@ export async function GET(request: NextRequest) {
 
     const needsReview = txns.filter(t => t.category?.name === 'Needs review').length
 
-    // Persist selected period
+    // Account widgets — per-account spend/income summary for the current period
+    const enabledWidgets: string[] = (() => {
+      try { return JSON.parse(settings?.dashboardWidgets ?? '[]') } catch { return [] }
+    })()
+    type CustomAccount = { name: string; type: 'credit_card' | 'savings' | 'checking' }
+    const customAccountList: CustomAccount[] = (() => {
+      try { return JSON.parse(settings?.customAccounts ?? '[]') } catch { return [] }
+    })()
+    const getAccountType = (name: string): 'credit_card' | 'savings' | 'checking' => {
+      const custom = customAccountList.find(a => a.name === name)
+      if (custom) return custom.type
+      const n = name.toLowerCase()
+      if (n.includes('credit') || n.includes('card')) return 'credit_card'
+      if (n.includes('saving')) return 'savings'
+      return 'checking'
+    }
+    const accountWidgets = enabledWidgets.map(acctName => {
+      const acctTxns = txns.filter(t => (t.account ?? '') === acctName)
+      const spend  = acctTxns.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0)
+      const earned = acctTxns.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0)
+      return { account: acctName, spend, earned, type: getAccountType(acctName) }
+    })
+
+    // Persist selected period (don't save custom since we don't persist the date range)
     await prisma.appSettings.upsert({
       where: { userId },
-      update: { selectedPeriod: period },
+      update: period !== 'custom' ? { selectedPeriod: period } : {},
       create: {
-        userId, selectedPeriod: period,
+        userId, selectedPeriod: period !== 'custom' ? period : 'all-time',
         expectedSalary: 37000, savingsFloor: 3000, currency: 'INR',
         salaryKeywords: 'salary,credit,sal', emailReports: false, reportEmail: '',
         assetsTotal: 0, liabilitiesTotal: 0, netWorthConfigured: false, driveEnabled: false,
@@ -145,6 +175,7 @@ export async function GET(request: NextRequest) {
         amount: r.amount, nextDate: r.nextDate, cadence: r.cadence,
       })),
       needsReview,
+      accountWidgets,
       savedPeriod: settings?.selectedPeriod ?? 'all-time',
     })
   } catch (error) {

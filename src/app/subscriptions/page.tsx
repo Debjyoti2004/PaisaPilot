@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, Check, Edit2, Trash2, ChevronDown, RotateCcw } from 'lucide-react'
 import { useViewMode } from '@/contexts/ViewContext'
+import { DatePicker } from '@/components/DatePicker'
 
 interface Sub {
   id: string; name: string; amount: number; cadence: string
@@ -125,7 +126,7 @@ function SubModal({ existing, onClose, onSaved }: {
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Next billing</label>
-              <input type="date" className="form-input" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+              <DatePicker value={nextDate} onChange={setNextDate} />
             </div>
           </div>
           {err && <p style={{ fontSize: 13, color: 'var(--red)', background: 'var(--red-bg)', padding: '10px 14px', borderRadius: 8 }}>{err}</p>}
@@ -153,6 +154,8 @@ export default function SubscriptionsPage() {
   const [paying, setPaying]         = useState<Set<string>>(new Set())
   const [confirmingPay, setConfirmingPay] = useState<string | null>(null)
   const [useNextMonth, setUseNextMonth]   = useState(false)
+  const [payAccount, setPayAccount]       = useState('')
+  const [accounts, setAccounts]           = useState<string[]>(['Savings Account','Salary Account','Cash','Credit Card','Debit Card'])
 
   const load = useCallback(async (viewAs?: string, ownerName?: string) => {
     setLoading(true)
@@ -166,7 +169,17 @@ export default function SubscriptionsPage() {
     } catch {} finally { setLoading(false) }
   }, [accessRevoked])
 
-  useEffect(() => { load(viewingUser?.id, viewingUser?.name) }, [load, viewingUser?.id])
+  useEffect(() => {
+    load(viewingUser?.id, viewingUser?.name)
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      try {
+        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
+        const names = custom.map((c: { name: string }) => c.name)
+        const base = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
+        setAccounts([...base, ...names.filter((n: string) => !base.includes(n))])
+      } catch {}
+    }).catch(() => {})
+  }, [load, viewingUser?.id])
 
   const active      = subs.filter(s => s.active)
   const todayMidnight = new Date(); todayMidnight.setHours(0, 0, 0, 0)
@@ -187,7 +200,7 @@ export default function SubscriptionsPage() {
     try {
       await fetch('/api/recurring', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, action: 'mark-paid', useNextMonthDate }),
+        body: JSON.stringify({ id, action: 'mark-paid', useNextMonthDate, account: payAccount || undefined }),
       })
       await load()
       window.dispatchEvent(new Event('paisapilot:refresh'))
@@ -352,8 +365,24 @@ export default function SubscriptionsPage() {
                   <div style={{
                     padding: '12px 20px 14px', background: 'var(--violet-bg)',
                     borderTop: '1px solid var(--violet-border)', borderBottom: '1px solid var(--border)',
-                    display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+                    display: 'flex', alignItems: 'center', gap: 14, flexWrap: 'wrap',
                   }}>
+                    {/* Account selector */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexShrink: 0 }}>
+                      <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', whiteSpace: 'nowrap' }}>Paid from</label>
+                      <div className="relative">
+                        <select
+                          className="form-select"
+                          style={{ height: 32, fontSize: 12, paddingRight: 28, minWidth: 150 }}
+                          value={payAccount}
+                          onChange={e => setPayAccount(e.target.value)}
+                        >
+                          <option value="">Select account…</option>
+                          {accounts.map(a => <option key={a}>{a}</option>)}
+                        </select>
+                        <ChevronDown size={12} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+                      </div>
+                    </div>
                     <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', fontSize: 13, color: 'var(--text-1)', flex: 1 }}>
                       <input
                         type="checkbox"
@@ -361,8 +390,8 @@ export default function SubscriptionsPage() {
                         onChange={e => setUseNextMonth(e.target.checked)}
                         style={{ accentColor: 'var(--violet)', width: 15, height: 15 }}
                       />
-                      Apply as <strong style={{ color: 'var(--violet)', marginLeft: 4, marginRight: 4 }}>{nextMonthLabel} 1</strong> for tracking
-                      <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 4 }}>(actual date saved for bank compare)</span>
+                      Apply as <strong style={{ color: 'var(--violet)', marginLeft: 4, marginRight: 4 }}>{nextMonthLabel} 1</strong>
+                      <span style={{ fontSize: 11, color: 'var(--text-3)' }}>(actual date saved for bank compare)</span>
                     </label>
                     <div className="flex gap-2 flex-shrink-0">
                       <button className="btn-ghost" style={{ fontSize: 13, padding: '6px 12px' }} onClick={() => setConfirmingPay(null)}>Cancel</button>

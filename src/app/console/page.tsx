@@ -1,11 +1,13 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import Link from 'next/link'
 import {
-  TrendingUp, TrendingDown, Wallet, AlertCircle, CheckCircle,
-  PiggyBank, BarChart3, ArrowRight, Calendar, Lightbulb,
+  TrendingUp, AlertCircle, CheckCircle,
+  PiggyBank, ArrowRight, Calendar, Lightbulb,
+  CalendarDays, ChevronDown,
 } from 'lucide-react'
+import { DatePicker } from '@/components/DatePicker'
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell,
   AreaChart, Area, Legend,
@@ -33,6 +35,7 @@ const PERIODS = [
   { id: 'last-6-months', label: 'Last 6 months' },
   { id: 'this-year',     label: 'This year'     },
   { id: 'all-time',      label: 'All time'      },
+  { id: 'custom',        label: 'Custom range'  },
 ]
 
 function fmtINR(n: number) {
@@ -45,24 +48,95 @@ function fmtC(n: number) {
 }
 
 // ── Period Selector ────────────────────────────────────────────────
-function PeriodSelect({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+function PeriodSelect({
+  value, onChange, customRange, onCustomRange,
+}: {
+  value: string
+  onChange: (v: string) => void
+  customRange: { start: string; end: string }
+  onCustomRange: (r: { start: string; end: string }) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const [tempRange, setTempRange] = useState(customRange)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  const label = value === 'custom' && customRange.start && customRange.end
+    ? `${customRange.start} → ${customRange.end}`
+    : (PERIODS.find(p => p.id === value)?.label ?? 'This month')
+
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('scroll', close, true)
+    return () => window.removeEventListener('scroll', close, true)
+  }, [open])
+
+  function handleOpen() {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 6, left: r.right - 224 })
+    }
+    setTempRange(customRange)
+    setOpen(o => !o)
+  }
+
   return (
-    <div className="flex gap-2 flex-wrap">
-      {PERIODS.map(p => (
-        <button
-          key={p.id}
-          onClick={() => onChange(p.id)}
-          className="period-badge"
-          style={{
-            background: value === p.id ? 'var(--violet)' : 'var(--bg-2)',
-            color: value === p.id ? '#fff' : 'var(--text-2)',
-            border: `1px solid ${value === p.id ? 'var(--violet)' : 'var(--border)'}`,
-            fontWeight: value === p.id ? 600 : 400,
-          }}
-        >
-          {p.label}
-        </button>
-      ))}
+    <div style={{ flexShrink: 0 }}>
+      <button ref={btnRef} className="period-badge" onClick={handleOpen} style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+        <CalendarDays size={14} style={{ color: 'var(--text-3)', flexShrink: 0 }} />
+        <span style={{ maxWidth: 160, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
+        <ChevronDown size={13} style={{ color: 'var(--text-3)', flexShrink: 0 }} />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
+          <div className="z-50 animate-slide-down" style={{
+            position: 'fixed', top: pos.top, left: Math.max(8, pos.left),
+            width: 224, background: '#fff', border: '1px solid var(--border)',
+            borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
+          }}>
+            {PERIODS.map(p => (
+              <button
+                key={p.id}
+                onClick={() => { onChange(p.id); if (p.id !== 'custom') setOpen(false) }}
+                className="w-full text-left flex items-center gap-2 px-4 py-2.5 transition-colors"
+                style={{
+                  fontSize: 13, fontWeight: p.id === value ? 700 : 400,
+                  color: p.id === value ? 'var(--violet)' : 'var(--text-1)',
+                  background: p.id === value ? 'var(--violet-bg)' : 'transparent',
+                  border: 'none', cursor: 'pointer',
+                }}
+              >
+                {p.id === value && <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--violet)', flexShrink: 0 }} />}
+                {p.label}
+              </button>
+            ))}
+            {value === 'custom' && (
+              <div style={{ padding: '10px 12px 12px', borderTop: '1px solid var(--border)', background: 'var(--violet-bg)' }}>
+                <div style={{ marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', display: 'block', marginBottom: 3 }}>From</label>
+                  <DatePicker compact value={tempRange.start} max={tempRange.end || undefined}
+                    onChange={v => setTempRange(r => ({ ...r, start: v }))} placeholder="Start date" />
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', display: 'block', marginBottom: 3 }}>To</label>
+                  <DatePicker compact value={tempRange.end} min={tempRange.start || undefined}
+                    onChange={v => setTempRange(r => ({ ...r, end: v }))} placeholder="End date" />
+                </div>
+                <button
+                  className="btn-primary"
+                  style={{ width: '100%', padding: '7px', fontSize: 12 }}
+                  disabled={!tempRange.start || !tempRange.end}
+                  onClick={() => { onCustomRange(tempRange); setOpen(false) }}
+                >
+                  Apply range
+                </button>
+              </div>
+            )}
+          </div>
+        </>
+      )}
     </div>
   )
 }
@@ -365,25 +439,190 @@ function NeedsReviewPanel({ items }: { items: ConsoleData['needsReview'] }) {
 
 // ── Top Spending ───────────────────────────────────────────────────
 function TopSpending({ items }: { items: ConsoleData['byCategory'] }) {
-  const max = items[0]?.amount ?? 1
+  const [hovered, setHovered] = useState<number | null>(null)
+  const visible = items.slice(0, 8)
+  const total   = visible.reduce((s, c) => s + c.amount, 0)
+  const max     = visible[0]?.amount ?? 1
+
+  if (visible.length === 0) return null
+
+  return (
+    <div className="card p-6" style={{ display: 'flex', flexDirection: 'column' }}>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>Top spending categories</h3>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
+            {visible.length} categories · {fmtC(total)} total
+          </p>
+        </div>
+        <span className="num" style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-1)' }}>{fmtC(total)}</span>
+      </div>
+
+      <div style={{ maxHeight: 240, overflowY: 'auto', paddingRight: 4 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+          {visible.map((c, i) => {
+            const pct   = total > 0 ? c.amount / total : 0
+            const color = GROUP_COLORS[c.group] ?? 'var(--violet)'
+            return (
+              <div
+                key={c.name}
+                style={{
+                  borderRadius: 9, padding: '6px 8px', cursor: 'default',
+                  background: hovered === i ? `${color}14` : 'transparent',
+                  border: `1.5px solid ${hovered === i ? color + '30' : 'transparent'}`,
+                  opacity: hovered === null || hovered === i ? 1 : 0.4,
+                  transition: 'all 0.18s',
+                }}
+                onMouseEnter={() => setHovered(i)}
+                onMouseLeave={() => setHovered(null)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {c.name}
+                  </span>
+                  <span className="num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)', flexShrink: 0 }}>{fmtC(c.amount)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0, minWidth: 34, textAlign: 'right' }}>{(pct * 100).toFixed(0)}%</span>
+                </div>
+                <div style={{ height: 5, borderRadius: 99, background: 'var(--bg)', overflow: 'hidden', marginLeft: 18 }}>
+                  <div style={{ height: '100%', borderRadius: 99, background: color, width: `${(c.amount / max) * 100}%`, transition: 'width 0.5s ease' }} />
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Spending Donut ─────────────────────────────────────────────────
+const DONUT_COLORS = [
+  '#6558D3', '#10b981', '#f59e0b', '#3b82f6', '#ec4899',
+  '#06b6d4', '#f97316', '#a855f7', '#14b8a6', '#9ca3af',
+]
+
+function SpendingDonut({ items }: { items: ConsoleData['byCategory'] }) {
+  const [hovered, setHovered] = useState<number | null>(null)
+
+  const MAX = 8
+  const sorted = [...items].sort((a, b) => b.amount - a.amount)
+  const total = sorted.reduce((s, i) => s + i.amount, 0)
+  if (total === 0 || sorted.length === 0) return null
+
+  // Group items below 2% threshold into "Other"
+  const mainItems = sorted.filter(i => i.amount / total >= 0.02)
+  const tinyItems = sorted.filter(i => i.amount / total < 0.02)
+  const tinyAmt = tinyItems.reduce((s, i) => s + i.amount, 0)
+  const topItems = mainItems.slice(0, MAX)
+  const overflowAmt = mainItems.slice(MAX).reduce((s, i) => s + i.amount, 0)
+  const otherAmt = tinyAmt + overflowAmt
+
+  const slices: { name: string; amount: number; count: number; group: string }[] =
+    otherAmt / total > 0.005
+      ? [...topItems, { name: 'Other', amount: otherAmt, count: 0, group: 'other' }]
+      : topItems
+
+  const spending = slices.reduce((s, i) => s + i.amount, 0)
+
+  const CX = 110, CY = 110, ROUT = 90, RIN = 54
+  const GAP = slices.length > 1 ? 0.018 : 0
+
+  let angle = -Math.PI / 2
+  const segs = slices.map((item, idx) => {
+    const fullArc = (item.amount / spending) * 2 * Math.PI
+    const sweep = Math.max(0.02, fullArc - GAP)
+    const s = angle + GAP / 2
+    const e = s + sweep
+    angle += fullArc
+    return { ...item, start: s, end: e, color: DONUT_COLORS[idx % DONUT_COLORS.length], pct: item.amount / spending }
+  })
+
+  function arcPath(ro: number, ri: number, a0: number, a1: number) {
+    const x1 = CX + ro * Math.cos(a0), y1 = CY + ro * Math.sin(a0)
+    const x2 = CX + ro * Math.cos(a1), y2 = CY + ro * Math.sin(a1)
+    const x3 = CX + ri * Math.cos(a1), y3 = CY + ri * Math.sin(a1)
+    const x4 = CX + ri * Math.cos(a0), y4 = CY + ri * Math.sin(a0)
+    const lg = a1 - a0 > Math.PI ? 1 : 0
+    return `M${x1},${y1} A${ro},${ro} 0 ${lg},1 ${x2},${y2} L${x3},${y3} A${ri},${ri} 0 ${lg},0 ${x4},${y4}Z`
+  }
+
+  const hSeg = hovered !== null ? segs[hovered] : null
+
   return (
     <div className="card p-6">
-      <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', marginBottom: 16 }}>Top spending categories</h3>
-      <div className="space-y-3">
-        {items.slice(0, 8).map(c => (
-          <div key={c.name}>
-            <div className="flex items-center justify-between mb-1">
-              <span style={{ fontSize: 13, color: 'var(--text-1)', fontWeight: 500 }}>{c.name}</span>
-              <div>
-                <span className="num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)' }}>{fmtC(c.amount)}</span>
-                <span style={{ fontSize: 11, color: 'var(--text-3)', marginLeft: 6 }}>{c.count} txns</span>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <h3 style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)' }}>Spending breakdown</h3>
+          <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>{slices.length} categories · hover to explore</p>
+        </div>
+        <span className="num" style={{ fontSize: 16, fontWeight: 800, color: 'var(--text-1)' }}>{fmtC(spending)}</span>
+      </div>
+
+      <div className="flex flex-col md:flex-row gap-6" style={{ alignItems: 'flex-start' }}>
+        {/* Donut SVG */}
+        <div style={{ flexShrink: 0, width: 200, alignSelf: 'center' }}>
+          <svg viewBox="0 0 220 220" style={{ width: '100%', overflow: 'visible' }}>
+            {segs.map((seg, i) => (
+              <path
+                key={seg.name}
+                d={arcPath(ROUT, RIN, seg.start, seg.end)}
+                fill={seg.color}
+                opacity={hovered === null || hovered === i ? 1 : 0.25}
+                style={{ cursor: 'pointer', transition: 'opacity 0.2s' }}
+                onMouseEnter={() => setHovered(i)}
+                onMouseLeave={() => setHovered(null)}
+              />
+            ))}
+            {/* Inner hole */}
+            <circle cx={CX} cy={CY} r={RIN - 1} fill="white" style={{ pointerEvents: 'none' }} />
+            {/* Center label — changes on hover */}
+            {hSeg ? (
+              <>
+                <text x={CX} y={CY - 14} textAnchor="middle" fontSize={9.5} fontWeight={700} fill={hSeg.color} style={{ pointerEvents: 'none' }}>{hSeg.name}</text>
+                <text x={CX} y={CY + 6}  textAnchor="middle" fontSize={15} fontWeight={800} fill="#0f172a" style={{ pointerEvents: 'none' }}>{fmtC(hSeg.amount)}</text>
+                <text x={CX} y={CY + 22} textAnchor="middle" fontSize={10} fill="#64748b" style={{ pointerEvents: 'none' }}>{(hSeg.pct * 100).toFixed(1)}% of total</text>
+              </>
+            ) : (
+              <>
+                <text x={CX} y={CY - 8}  textAnchor="middle" fontSize={9} fill="#94a3b8" fontWeight={600} style={{ pointerEvents: 'none' }}>TOTAL SPENT</text>
+                <text x={CX} y={CY + 13} textAnchor="middle" fontSize={16} fontWeight={800} fill="#0f172a" style={{ pointerEvents: 'none' }}>{fmtC(spending)}</text>
+              </>
+            )}
+          </svg>
+        </div>
+
+        {/* Legend — scrollable, fixed height */}
+        <div style={{ flex: 1, minWidth: 0, width: '100%', maxHeight: 240, overflowY: 'auto', paddingRight: 4 }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
+            {segs.map((seg, i) => (
+              <div
+                key={seg.name}
+                style={{
+                  borderRadius: 9, padding: '6px 8px', cursor: 'pointer',
+                  background: hovered === i ? `${seg.color}14` : 'transparent',
+                  border: `1.5px solid ${hovered === i ? seg.color + '30' : 'transparent'}`,
+                  opacity: hovered === null || hovered === i ? 1 : 0.4,
+                  transition: 'all 0.18s',
+                }}
+                onMouseEnter={() => setHovered(i)}
+                onMouseLeave={() => setHovered(null)}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 5 }}>
+                  <div style={{ width: 10, height: 10, borderRadius: 3, background: seg.color, flexShrink: 0 }} />
+                  <span style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {seg.name}
+                  </span>
+                  <span className="num" style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-1)', flexShrink: 0 }}>{fmtC(seg.amount)}</span>
+                  <span style={{ fontSize: 11, color: 'var(--text-3)', flexShrink: 0, minWidth: 34, textAlign: 'right' }}>{(seg.pct * 100).toFixed(0)}%</span>
+                </div>
+                <div style={{ height: 5, borderRadius: 99, background: 'var(--bg)', overflow: 'hidden', marginLeft: 18 }}>
+                  <div style={{ height: '100%', borderRadius: 99, background: seg.color, width: `${seg.pct * 100}%`, transition: 'width 0.5s ease' }} />
+                </div>
               </div>
-            </div>
-            <div className="progress-track">
-              <div className="progress-fill" style={{ width: `${(c.amount / max) * 100}%`, background: GROUP_COLORS[c.group] ?? 'var(--violet)' }} />
-            </div>
+            ))}
           </div>
-        ))}
+        </div>
       </div>
     </div>
   )
@@ -391,14 +630,18 @@ function TopSpending({ items }: { items: ConsoleData['byCategory'] }) {
 
 // ── Main Page ─────────────────────────────────────────────────────
 export default function ConsolePage() {
-  const [period, setPeriod] = useState('this-month')
-  const [data, setData] = useState<ConsoleData | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [period, setPeriod]         = useState('this-month')
+  const [customRange, setCustomRange] = useState({ start: '', end: '' })
+  const [data, setData]             = useState<ConsoleData | null>(null)
+  const [loading, setLoading]       = useState(true)
 
-  const load = useCallback(async (p: string) => {
+  const load = useCallback(async (p: string, range?: { start: string; end: string }) => {
+    if (p === 'custom' && (!range?.start || !range?.end)) return
     setLoading(true)
     try {
-      const res = await fetch(`/api/console?period=${p}`)
+      let url = `/api/console?period=${p}`
+      if (p === 'custom' && range?.start && range?.end) url += `&from=${range.start}&to=${range.end}`
+      const res = await fetch(url)
       const d = await res.json()
       setData(d)
     } catch {} finally {
@@ -406,14 +649,18 @@ export default function ConsolePage() {
     }
   }, [])
 
-  useEffect(() => { load(period) }, [period, load])
+  useEffect(() => {
+    if (period !== 'custom') load(period)
+  }, [period, load])
 
   // Listen for refresh events (new transaction added via TopBar)
   useEffect(() => {
-    const handler = () => load(period)
+    const handler = () => period !== 'custom'
+      ? load(period)
+      : load('custom', customRange)
     window.addEventListener('paisapilot:refresh', handler)
     return () => window.removeEventListener('paisapilot:refresh', handler)
-  }, [period, load])
+  }, [period, customRange, load])
 
   return (
     <div className="p-6 space-y-5">
@@ -423,7 +670,12 @@ export default function ConsolePage() {
           <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)' }}>Console</h2>
           <p style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 4 }}>Your financial intelligence hub — all insights in one place.</p>
         </div>
-        <PeriodSelect value={period} onChange={p => { setPeriod(p); load(p) }} />
+        <PeriodSelect
+          value={period}
+          onChange={p => { setPeriod(p); if (p !== 'custom') load(p) }}
+          customRange={customRange}
+          onCustomRange={r => { setCustomRange(r); load('custom', r) }}
+        />
       </div>
 
       {loading && (
@@ -452,11 +704,16 @@ export default function ConsolePage() {
             <InvestmentBreakdown items={data.investBreakdown} />
           </div>
 
-          {/* Top spending + Needs review */}
-          <div className="grid md:grid-cols-2 gap-5">
-            {data.byCategory.length > 0 && <TopSpending items={data.byCategory} />}
-            {data.needsReview.length > 0 && <NeedsReviewPanel items={data.needsReview} />}
-          </div>
+          {/* Spending breakdown + Top categories — side by side */}
+          {data.byCategory.length > 0 && (
+            <div className="grid md:grid-cols-2 gap-5">
+              <SpendingDonut items={data.byCategory} />
+              <TopSpending items={data.byCategory} />
+            </div>
+          )}
+
+          {/* Needs review — full width */}
+          {data.needsReview.length > 0 && <NeedsReviewPanel items={data.needsReview} />}
 
           {/* CTA to wealth plan if not set */}
           {!data.wealthPlan && (

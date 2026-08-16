@@ -7,6 +7,7 @@ import {
   WealthGroup, NEEDS_CATS, WANTS_CATS, INV_CATS, ALL_CATS, INCOME_CATS,
   GROUP_DEFAULT_CAT, GROUP_META, catToGroup,
 } from '@/config/categories'
+import { DatePicker } from '@/components/DatePicker'
 
 interface ParsedRow { date: string; merchant: string; amount: number; type: 'expense' | 'income'; category: string }
 interface Rule { id: string; whenText: string; thenText: string; enabled: boolean }
@@ -352,8 +353,7 @@ export default function DocumentsPage() {
                           </div>
                           <div>
                             <label style={{ fontSize: 11, color: 'var(--text-3)', display: 'block', marginBottom: 3 }}>Date</label>
-                            <input type="date" className="form-input" style={{ height: 36, fontSize: 13 }}
-                              value={row.editDate} onChange={e => updateRow(i, { editDate: e.target.value })} />
+                            <DatePicker compact value={row.editDate} onChange={v => updateRow(i, { editDate: v })} />
                           </div>
                           <div>
                             <label style={{ fontSize: 11, color: 'var(--text-3)', display: 'block', marginBottom: 3 }}>Category</label>

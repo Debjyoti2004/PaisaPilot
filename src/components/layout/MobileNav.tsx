@@ -4,9 +4,9 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useState } from 'react'
 import {
-  LayoutDashboard, ArrowLeftRight, Wallet, Target,
+  LayoutDashboard, ArrowLeftRight, Wallet,
   MoreHorizontal, RefreshCw, CreditCard, FileText,
-  BookOpen, Settings, Sparkles, Gauge, X,
+  BookOpen, Settings, Sparkles, Gauge, X, StickyNote,
 } from 'lucide-react'
 
 const PRIMARY = [
@@ -18,6 +18,7 @@ const PRIMARY = [
 const MORE_ITEMS = [
   { href: '/recurring',     label: 'Recurring',     icon: RefreshCw  },
   { href: '/subscriptions', label: 'Subscriptions', icon: CreditCard },
+  { href: '/notes',         label: 'Quick Notes',   icon: StickyNote },
   { href: '/documents',     label: 'Documents',     icon: FileText   },
   { href: '/rules',         label: 'Rules',         icon: BookOpen   },
   { href: '/settings',      label: 'Settings',      icon: Settings   },
