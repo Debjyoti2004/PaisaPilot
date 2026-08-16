@@ -64,7 +64,7 @@ export async function sendInviteEmail({
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      from: 'PaisaPilot <onboarding@resend.dev>',
+      from: process.env.RESEND_FROM ?? 'PaisaPilot <onboarding@resend.dev>',
       to: [to],
       subject: `${ownerName} invited you to view their finances on PaisaPilot — OTP inside`,
       html,
