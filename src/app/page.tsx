@@ -540,35 +540,47 @@ function AccountCardScroller({ widgets }: { widgets: DashboardData['accountWidge
         paddingBottom: 2,
       }}>
         {widgets.map(w => {
-          const isCard    = w.type === 'credit_card'
-          const isSavings = w.type === 'savings'
-          const topColor  = isCard ? '#f97316' : isSavings ? '#3b82f6' : '#8b5cf6'
-          const valColor  = isCard ? '#ea580c' : isSavings ? '#2563eb' : '#7c3aed'
-          const mainAmt   = isCard ? w.spend : isSavings ? w.earned : w.spend
-          const mainLabel = isCard ? 'Total spent' : isSavings ? 'Deposited' : 'Debited'
+          const isCard   = w.type === 'credit_card'
+          const topColor = isCard ? '#f97316' : w.type === 'savings' ? '#3b82f6' : '#8b5cf6'
+          const remaining = w.earned - w.spend
+          const remColor  = remaining > 0 ? '#16a34a' : remaining < 0 ? '#dc2626' : 'var(--text-3)'
+          const remLabel  = remaining >= 0 ? 'Remaining' : 'Deficit this period'
           return (
-            <Link key={w.account} href={`/transactions?account=${encodeURIComponent(w.account)}`} style={{ textDecoration: 'none', flexShrink: 0, width: 200 }}>
+            <Link key={w.account} href={`/transactions?account=${encodeURIComponent(w.account)}`} style={{ textDecoration: 'none', flexShrink: 0, width: 210 }}>
               <div style={{
                 background: 'var(--surface)', border: '1px solid var(--border)',
                 borderTop: `3px solid ${topColor}`, borderRadius: 12,
-                padding: '12px 14px 14px', height: 110, cursor: 'pointer', transition: 'box-shadow 0.15s',
+                padding: '12px 14px 14px', height: 136, cursor: 'pointer', transition: 'box-shadow 0.15s',
               }}
                 onMouseEnter={e => (e.currentTarget.style.boxShadow = 'var(--shadow-lg)')}
                 onMouseLeave={e => (e.currentTarget.style.boxShadow = '')}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                  <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '80%' }}>{w.account}</p>
+                {/* Account name */}
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6 }}>
+                  <p style={{ fontSize: 10, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.07em', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '82%' }}>{w.account}</p>
                   <ArrowUpRight size={13} style={{ color: 'var(--text-3)', opacity: 0.6, flexShrink: 0 }} />
                 </div>
-                <p className="num" style={{ fontSize: 20, fontWeight: 800, color: mainAmt > 0 ? valColor : 'var(--text-3)', lineHeight: 1.1 }}>
-                  {fmtFull(mainAmt)}
+
+                {/* Remaining (main) */}
+                <p className="num" style={{ fontSize: 20, fontWeight: 800, color: remColor, lineHeight: 1.1 }}>
+                  {remaining < 0 ? '−' : ''}{fmtFull(Math.abs(remaining))}
                 </p>
-                <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 5 }}>{mainLabel}</p>
-                {!isCard && w.spend > 0 && (
-                  <p style={{ fontSize: 11, color: 'var(--text-3)', marginTop: 2 }}>
-                    Spent: <span className="num" style={{ fontWeight: 600, color: '#ea580c' }}>{fmtFull(w.spend)}</span>
-                  </p>
-                )}
+                <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 2, marginBottom: 8 }}>{remLabel}</p>
+
+                {/* Divider */}
+                <div style={{ height: 1, background: 'var(--border)', marginBottom: 7 }} />
+
+                {/* Income + Spent */}
+                <div style={{ display: 'flex', gap: 12 }}>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>In</p>
+                    <p className="num" style={{ fontSize: 11, fontWeight: 700, color: '#16a34a', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtFull(w.earned)}</p>
+                  </div>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <p style={{ fontSize: 9, fontWeight: 700, color: 'var(--text-3)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>Out</p>
+                    <p className="num" style={{ fontSize: 11, fontWeight: 700, color: '#ea580c', marginTop: 2, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{fmtFull(w.spend)}</p>
+                  </div>
+                </div>
               </div>
             </Link>
           )

@@ -11,12 +11,16 @@ function genOtp() {
 async function sendEmail(to: string, subject: string, html: string) {
   const apiKey = process.env.RESEND_API_KEY
   if (!apiKey) throw new Error('RESEND_API_KEY not set')
+  const from = process.env.RESEND_FROM ?? 'PaisaPilot <onboarding@resend.dev>'
   const res = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from: 'PaisaPilot <onboarding@resend.dev>', to, subject, html }),
+    body: JSON.stringify({ from, to, subject, html }),
   })
-  if (!res.ok) throw new Error('Email send failed')
+  if (!res.ok) {
+    const body = await res.text()
+    throw new Error(`Email send failed: ${body}`)
+  }
 }
 
 // POST — send OTP to registered email
@@ -69,7 +73,7 @@ export async function POST() {
       const masked = local.slice(0, 2) + '***@' + domain
       return NextResponse.json({ ok: true, maskedEmail: masked, devOtp: otp })
     }
-    return NextResponse.json({ error: 'Failed to send email. Please verify your domain on resend.com or contact support.' }, { status: 500 })
+    return NextResponse.json({ error: 'Failed to send OTP email. Please try again or contact support.' }, { status: 500 })
   }
 
   // Return masked email for display
