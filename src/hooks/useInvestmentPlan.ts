@@ -7,8 +7,6 @@ import {
   getMilestones, getInstrumentSplit, BRACKET_CONFIGS,
 } from '@/utils/investmentCalculator'
 
-const STORAGE_KEY = 'paisapilot_wealth_plan_v1'
-
 export const DEFAULT_PROFILE: InvestmentProfile = {
   startingAge: 21,
   startingSalary: 25000,
@@ -18,26 +16,56 @@ export const DEFAULT_PROFILE: InvestmentProfile = {
   bracket: 1,
 }
 
+async function loadFromDB(): Promise<InvestmentProfile | null> {
+  try {
+    const res = await fetch('/api/wealth-plan')
+    if (!res.ok) return null
+    const d = await res.json()
+    if (!d.plan) return null
+    return {
+      startingAge:            d.plan.startingAge,
+      startingSalary:         d.plan.startingSalary,
+      incrementRate:          d.plan.incrementRate,
+      inflationRate:          d.plan.inflationRate,
+      extraMonthlyInvestment: d.plan.extraMonthlyInvest ?? 0,
+      bracket:                d.plan.bracket ?? 1,
+    }
+  } catch {
+    return null
+  }
+}
+
+async function saveToDB(p: InvestmentProfile): Promise<void> {
+  try {
+    await fetch('/api/wealth-plan', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        startingAge:          p.startingAge,
+        startingSalary:       p.startingSalary,
+        incrementRate:        p.incrementRate,
+        inflationRate:        p.inflationRate,
+        extraMonthlyInvest:   p.extraMonthlyInvestment,
+        bracket:              p.bracket,
+      }),
+    })
+  } catch { /* ignore */ }
+}
+
 export function useInvestmentPlan() {
   const [profile, setProfile] = useState<InvestmentProfile>(DEFAULT_PROFILE)
   const [loaded, setLoaded] = useState(false)
   const [isOnboarding, setIsOnboarding] = useState(false)
 
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw) as InvestmentProfile
-        setProfile({ ...DEFAULT_PROFILE, ...parsed })
+    loadFromDB().then(dbProfile => {
+      if (dbProfile) {
+        setProfile({ ...DEFAULT_PROFILE, ...dbProfile })
       }
-    } catch { /* ignore */ }
-    setIsOnboarding(false)
-    setLoaded(true)
+      setIsOnboarding(false)
+      setLoaded(true)
+    })
   }, [])
-
-  function persist(p: InvestmentProfile) {
-    try { localStorage.setItem(STORAGE_KEY, JSON.stringify(p)) } catch { /* ignore */ }
-  }
 
   function saveProfile(updates: Partial<InvestmentProfile>) {
     const next = { ...profile, ...updates }
@@ -45,7 +73,7 @@ export function useInvestmentPlan() {
       next.bracket = detectBracket(updates.startingSalary)
     }
     setProfile(next)
-    persist(next)
+    saveToDB(next)
   }
 
   function completeOnboarding(data: {
@@ -57,13 +85,13 @@ export function useInvestmentPlan() {
     const next: InvestmentProfile = { ...DEFAULT_PROFILE, ...data, bracket }
     setProfile(next)
     setIsOnboarding(false)
-    persist(next)
+    saveToDB(next)
   }
 
   function resetProfile() {
     setProfile(DEFAULT_PROFILE)
     setIsOnboarding(true)
-    try { localStorage.removeItem(STORAGE_KEY) } catch { /* ignore */ }
+    saveToDB(DEFAULT_PROFILE)
   }
 
   const plan = useMemo(() => {
@@ -74,7 +102,6 @@ export function useInvestmentPlan() {
     const milestones = getMilestones(corpusData)
     const instrumentSplit = getInstrumentSplit(profile, config)
 
-    // Corpus for each bracket using user's salary (for comparison chart)
     const comparisonCorpus = {
       1: computeCorpus({ ...profile, bracket: 1 }, BRACKET_CONFIGS[1]),
       2: computeCorpus({ ...profile, bracket: 2 }, BRACKET_CONFIGS[2]),

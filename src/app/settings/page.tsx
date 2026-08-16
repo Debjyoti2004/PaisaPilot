@@ -6,12 +6,16 @@ import { useSearchParams } from 'next/navigation'
 import { Save, Cloud, Trash2, AlertCircle, Check, FolderOpen, Search, X, Users, Link, Eye, LogOut, UserMinus } from 'lucide-react'
 import { DownloadMenu } from '@/components/DownloadMenu'
 import { useViewMode } from '@/contexts/ViewContext'
+import { DatePicker } from '@/components/DatePicker'
+import { createPortal } from 'react-dom'
 
 interface Settings {
   expectedSalary: number; savingsFloor: number; emailReports: boolean; reportEmail: string
   assetsTotal: number; liabilitiesTotal: number; netWorthConfigured: boolean
   driveFolder: string | null; driveEnabled: boolean; driveLastSync: string | null
   salaryCarryover: boolean
+  dashboardWidgets: string // JSON array of account names
+  customAccounts: string  // JSON array of { name, type }
 }
 
 function Section({ id, title, desc, children }: { id?: string; title: string; desc?: string; children: React.ReactNode }) {
@@ -173,6 +177,11 @@ export default function SettingsPage() {
         <FamilySection />
       </Section>
 
+      {/* PIN Lock */}
+      <Section title="Security — PIN Lock" desc="Protect your data with a 4-digit PIN. You'll need to enter it every time you open the app.">
+        <PinSection />
+      </Section>
+
       {/* Danger zone */}
       <Section title="Danger zone">
         <div className="space-y-4">
@@ -244,6 +253,9 @@ function FamilySection() {
   const [creating, setCreating] = useState(false)
   const [familyName, setFamilyName] = useState('My Family')
   const [leaving, setLeaving] = useState(false)
+
+  const [portalMounted, setPortalMounted] = useState(false)
+  useEffect(() => { setPortalMounted(true) }, [])
 
   // Invite modal state
   const [inviteOpen, setInviteOpen] = useState(false)
@@ -512,7 +524,7 @@ function FamilySection() {
       )}
 
       {/* Invite modal */}
-      {inviteOpen && (
+      {inviteOpen && portalMounted && createPortal(
         <div className="modal-overlay" onClick={e => e.target === e.currentTarget && closeInviteModal()}>
           <div className="modal-box" style={{ maxWidth: 420 }}>
             <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
@@ -552,7 +564,8 @@ function FamilySection() {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {family.members.length === 1 && family.invites.length === 0 && myRole === 'owner' && (
@@ -907,13 +920,12 @@ function StatementExport() {
       <div className="flex items-end gap-3 flex-wrap">
         <div>
           <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>From</label>
-          <input type="date" className="form-input" value={from}
-            onChange={e => { setFrom(e.target.value); setFetched(false) }} style={{ maxWidth: 170 }} />
+          <DatePicker value={from} onChange={v => { setFrom(v); setFetched(false) }} style={{ maxWidth: 170 }} />
+
         </div>
         <div>
           <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>To</label>
-          <input type="date" className="form-input" value={to}
-            onChange={e => { setTo(e.target.value); setFetched(false) }} style={{ maxWidth: 170 }} />
+          <DatePicker value={to} onChange={v => { setTo(v); setFetched(false) }} style={{ maxWidth: 170 }} />
         </div>
         <button className="btn-secondary flex items-center gap-2" disabled={fetching} onClick={fetchData}>
           {fetching
@@ -936,5 +948,423 @@ function StatementExport() {
         </div>
       )}
     </div>
+  )
+}
+
+/* ── Dashboard Widgets Section ───────────────────────────────────────────── */
+const BUILTIN_ACCOUNTS = [
+  { name: 'Savings Account', type: 'savings'     as const },
+  { name: 'Salary Account',  type: 'savings'     as const },
+  { name: 'Cash',            type: 'checking'    as const },
+  { name: 'Credit Card',     type: 'credit_card' as const },
+  { name: 'Debit Card',      type: 'credit_card' as const },
+]
+
+const TYPE_ICONS: Record<string, string> = { credit_card: '💳', savings: '🏦', checking: '🏧' }
+const TYPE_DESC:  Record<string, string> = {
+  credit_card: 'Shows total spend from this card',
+  savings:     'Shows deposits and withdrawals',
+  checking:    'Shows debits and credits',
+}
+
+type AccountEntry = { name: string; type: 'credit_card' | 'savings' | 'checking' }
+
+function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
+  return (
+    <div onClick={e => { e.stopPropagation(); onClick() }} style={{
+      width: 44, height: 24, borderRadius: 12, padding: 3, flexShrink: 0, cursor: 'pointer',
+      background: on ? 'var(--violet)' : 'var(--bg-3)',
+      display: 'flex', alignItems: 'center', justifyContent: on ? 'flex-end' : 'flex-start',
+      transition: 'background 0.2s',
+    }}>
+      <div style={{ width: 18, height: 18, borderRadius: '50%', background: '#fff', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+    </div>
+  )
+}
+
+function DashboardWidgetsSection({ settings, onSave }: { settings: Settings; onSave: (u: Partial<Settings>) => void }) {
+  const enabled: string[] = (() => {
+    try { return JSON.parse(settings.dashboardWidgets ?? '[]') } catch { return [] }
+  })()
+  const custom: AccountEntry[] = (() => {
+    try { return JSON.parse(settings.customAccounts ?? '[]') } catch { return [] }
+  })()
+
+  const [adding, setAdding] = useState(false)
+  const [newName, setNewName] = useState('')
+  const [newType, setNewType] = useState<AccountEntry['type']>('checking')
+
+  const allAccounts: AccountEntry[] = [
+    ...BUILTIN_ACCOUNTS,
+    ...custom,
+  ]
+
+  function toggle(name: string) {
+    const next = enabled.includes(name) ? enabled.filter(a => a !== name) : [...enabled, name]
+    onSave({ dashboardWidgets: next as unknown as string })
+  }
+
+  function addAccount() {
+    const n = newName.trim()
+    if (!n || allAccounts.find(a => a.name.toLowerCase() === n.toLowerCase())) return
+    const next: AccountEntry[] = [...custom, { name: n, type: newType }]
+    const nextEnabled = [...enabled, n]
+    onSave({ customAccounts: next as unknown as string, dashboardWidgets: nextEnabled as unknown as string })
+    setNewName(''); setAdding(false)
+  }
+
+  function removeCustom(name: string) {
+    const next = custom.filter(a => a.name !== name)
+    const nextEnabled = enabled.filter(a => a !== name)
+    onSave({ customAccounts: next as unknown as string, dashboardWidgets: nextEnabled as unknown as string })
+  }
+
+  return (
+    <div className="space-y-3">
+      <p style={{ fontSize: 13, color: 'var(--text-3)' }}>
+        Toggle which account cards appear on your dashboard. Add custom accounts for credit cards, savings accounts, or any account you track.
+      </p>
+
+      {allAccounts.map(acct => {
+        const on = enabled.includes(acct.name)
+        const isCustom = !!custom.find(c => c.name === acct.name)
+        return (
+          <div key={acct.name}
+            className="flex items-center justify-between p-3 rounded-xl"
+            style={{ border: '1px solid var(--border)', background: on ? 'var(--violet-bg)' : 'var(--surface)', cursor: 'pointer', transition: 'background 0.15s' }}
+            onClick={() => toggle(acct.name)}
+          >
+            <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
+              <span style={{ fontSize: 20, flexShrink: 0 }}>{TYPE_ICONS[acct.type] ?? '🏧'}</span>
+              <div style={{ minWidth: 0 }}>
+                <div className="flex items-center gap-2">
+                  <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }}>{acct.name}</p>
+                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                    color: acct.type === 'credit_card' ? '#ea580c' : acct.type === 'savings' ? '#2563eb' : '#7c3aed',
+                    background: acct.type === 'credit_card' ? '#fff7ed' : acct.type === 'savings' ? '#eff6ff' : 'var(--violet-bg)',
+                    padding: '1px 6px', borderRadius: 6 }}>
+                    {acct.type === 'credit_card' ? 'Card' : acct.type === 'savings' ? 'Savings' : 'Checking'}
+                  </span>
+                </div>
+                <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{TYPE_DESC[acct.type]}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              {isCustom && (
+                <button onClick={e => { e.stopPropagation(); removeCustom(acct.name) }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}
+                  title="Remove">×</button>
+              )}
+              <Toggle on={on} onClick={() => toggle(acct.name)} />
+            </div>
+          </div>
+        )
+      })}
+
+      {/* Add custom account */}
+      {adding ? (
+        <div className="p-4 rounded-xl" style={{ border: '1px dashed var(--violet)', background: 'var(--violet-bg)' }}>
+          <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 12 }}>Add account</p>
+          <div className="flex gap-2 mb-3">
+            <input
+              autoFocus
+              className="form-input"
+              placeholder="Account name (e.g. HDFC Credit Card)"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && addAccount()}
+              style={{ flex: 1 }}
+            />
+            <select className="form-select" value={newType} onChange={e => setNewType(e.target.value as AccountEntry['type'])} style={{ width: 140 }}>
+              <option value="credit_card">💳 Credit Card</option>
+              <option value="savings">🏦 Savings</option>
+              <option value="checking">🏧 Checking</option>
+            </select>
+          </div>
+          <div className="flex gap-2">
+            <button className="btn-primary" style={{ fontSize: 13, padding: '8px 16px' }} onClick={addAccount} disabled={!newName.trim()}>Add</button>
+            <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => { setAdding(false); setNewName('') }}>Cancel</button>
+          </div>
+        </div>
+      ) : (
+        <button className="btn-ghost" style={{ fontSize: 13, gap: 6, width: '100%', justifyContent: 'center', border: '1px dashed var(--border)', borderRadius: 12, padding: '10px' }}
+          onClick={() => setAdding(true)}>
+          + Add custom account
+        </button>
+      )}
+    </div>
+  )
+}
+
+/* ── PIN Section ─────────────────────────────────────────────────────────── */
+type PinModal = 'enable' | 'disable' | 'change' | 'reset' | null
+
+function PinSection() {
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+  const [modal, setModal] = useState<PinModal>(null)
+
+  useEffect(() => {
+    fetch('/api/settings/pin').then(r => r.json()).then(d => setEnabled(d.enabled ?? false))
+  }, [])
+
+  function onDone(nowEnabled: boolean) {
+    setEnabled(nowEnabled)
+    setModal(null)
+    // Clear session lock so next open re-checks
+    sessionStorage.removeItem('pp_pin_verified')
+  }
+
+  if (enabled === null) return <div className="skeleton" style={{ height: 56, borderRadius: 12 }} />
+
+  return (
+    <div className="space-y-4">
+      {/* Status row */}
+      <div className="flex items-center justify-between p-4 rounded-2xl" style={{ background: enabled ? 'var(--violet-bg)' : 'var(--surface)', border: '1px solid', borderColor: enabled ? 'var(--violet-border)' : 'var(--border)' }}>
+        <div className="flex items-center gap-3">
+          <div style={{
+            width: 40, height: 40, borderRadius: 12, display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: enabled ? 'var(--violet)' : 'var(--border)', fontSize: 20,
+          }}>
+            {enabled ? '🔒' : '🔓'}
+          </div>
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-1)' }}>{enabled ? 'PIN Lock is ON' : 'PIN Lock is OFF'}</p>
+            <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>
+              {enabled ? 'Your app is protected with a 4-digit PIN.' : 'Anyone with access to your device can open the app.'}
+            </p>
+          </div>
+        </div>
+        <button
+          className={enabled ? 'btn-secondary' : 'btn-primary'}
+          style={{ fontSize: 13, flexShrink: 0 }}
+          onClick={() => setModal(enabled ? 'disable' : 'enable')}
+        >
+          {enabled ? 'Disable' : 'Enable PIN'}
+        </button>
+      </div>
+
+      {/* Actions when enabled */}
+      {enabled && (
+        <div className="flex gap-3 flex-wrap">
+          <button className="btn-secondary" style={{ fontSize: 13 }} onClick={() => setModal('change')}>
+            Change PIN
+          </button>
+          <button className="btn-secondary" style={{ fontSize: 13, color: 'var(--text-3)' }} onClick={() => setModal('reset')}>
+            Reset via email
+          </button>
+        </div>
+      )}
+
+      {/* Modals */}
+      {modal === 'enable'  && <PinEnableModal  onDone={() => onDone(true)}  onClose={() => setModal(null)} />}
+      {modal === 'disable' && <PinDisableModal onDone={() => onDone(false)} onClose={() => setModal(null)} />}
+      {modal === 'change'  && <PinChangeModal  onDone={() => onDone(true)}  onClose={() => setModal(null)} />}
+      {modal === 'reset'   && <PinResetModal   onDone={() => onDone(true)}  onClose={() => setModal(null)} />}
+    </div>
+  )
+}
+
+/* ── PIN Modals ──────────────────────────────────────────────────────────── */
+
+function PinModalWrap({ title, desc, onClose, children }: { title: string; desc?: string; onClose: () => void; children: React.ReactNode }) {
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+  if (!mounted) return null
+  return createPortal(
+    <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
+      <div className="modal-box" style={{ maxWidth: 400 }}>
+        <div className="flex items-center justify-between px-6 py-5" style={{ borderBottom: '1px solid var(--border)' }}>
+          <div>
+            <h2 style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-1)' }}>{title}</h2>
+            {desc && <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 3 }}>{desc}</p>}
+          </div>
+          <button className="btn-ghost" style={{ padding: 8 }} onClick={onClose}><X size={18} /></button>
+        </div>
+        <div className="px-6 py-5 space-y-4">{children}</div>
+      </div>
+    </div>,
+    document.body
+  )
+}
+
+function PinDigitInput({ label, value, onChange }: { label: string; value: string; onChange: (v: string) => void }) {
+  return (
+    <div>
+      <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>{label}</label>
+      <input
+        type="password"
+        inputMode="numeric"
+        maxLength={4}
+        value={value}
+        onChange={e => onChange(e.target.value.replace(/\D/g, '').slice(0, 4))}
+        className="form-input"
+        style={{ letterSpacing: '0.5em', fontSize: 20, textAlign: 'center', fontFamily: 'monospace' }}
+        placeholder="••••"
+        autoComplete="new-password"
+      />
+    </div>
+  )
+}
+
+function PinEnableModal({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
+  const [pin, setPin] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function submit() {
+    if (pin.length !== 4) { setError('PIN must be exactly 4 digits'); return }
+    if (pin !== confirm) { setError('PINs do not match'); return }
+    setLoading(true); setError('')
+    try {
+      const res = await fetch('/api/settings/pin', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }) })
+      const d = await res.json()
+      if (!res.ok) { setError(d.error); return }
+      onDone()
+    } catch { setError('Something went wrong') } finally { setLoading(false) }
+  }
+
+  return (
+    <PinModalWrap title="Enable PIN Lock" desc="Choose a 4-digit PIN to protect your app." onClose={onClose}>
+      <PinDigitInput label="New PIN" value={pin} onChange={setPin} />
+      <PinDigitInput label="Confirm PIN" value={confirm} onChange={setConfirm} />
+      {error && <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>}
+      <div className="flex gap-3 pt-2">
+        <button className="btn-secondary flex-1" onClick={onClose} disabled={loading}>Cancel</button>
+        <button className="btn-primary flex-1" onClick={submit} disabled={loading}>{loading ? 'Saving…' : 'Enable PIN'}</button>
+      </div>
+    </PinModalWrap>
+  )
+}
+
+function PinDisableModal({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
+  const [pin, setPin] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function submit() {
+    if (pin.length !== 4) { setError('Enter your current 4-digit PIN'); return }
+    setLoading(true); setError('')
+    try {
+      const res = await fetch('/api/settings/pin', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ pin }) })
+      const d = await res.json()
+      if (!res.ok) { setError(d.error); return }
+      onDone()
+    } catch { setError('Something went wrong') } finally { setLoading(false) }
+  }
+
+  return (
+    <PinModalWrap title="Disable PIN Lock" desc="Enter your current PIN to remove the lock." onClose={onClose}>
+      <PinDigitInput label="Current PIN" value={pin} onChange={setPin} />
+      {error && <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>}
+      <div className="flex gap-3 pt-2">
+        <button className="btn-secondary flex-1" onClick={onClose} disabled={loading}>Cancel</button>
+        <button className="btn-primary flex-1" style={{ background: 'var(--red)' }} onClick={submit} disabled={loading}>{loading ? 'Disabling…' : 'Disable PIN'}</button>
+      </div>
+    </PinModalWrap>
+  )
+}
+
+function PinChangeModal({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
+  const [oldPin, setOldPin] = useState('')
+  const [newPin, setNewPin] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function submit() {
+    if (oldPin.length !== 4) { setError('Enter your current PIN'); return }
+    if (newPin.length !== 4) { setError('New PIN must be 4 digits'); return }
+    if (newPin !== confirm) { setError('New PINs do not match'); return }
+    setLoading(true); setError('')
+    try {
+      const res = await fetch('/api/settings/pin', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ oldPin, newPin }) })
+      const d = await res.json()
+      if (!res.ok) { setError(d.error); return }
+      onDone()
+    } catch { setError('Something went wrong') } finally { setLoading(false) }
+  }
+
+  return (
+    <PinModalWrap title="Change PIN" desc="Enter your current PIN, then set a new one." onClose={onClose}>
+      <PinDigitInput label="Current PIN" value={oldPin} onChange={setOldPin} />
+      <PinDigitInput label="New PIN" value={newPin} onChange={setNewPin} />
+      <PinDigitInput label="Confirm new PIN" value={confirm} onChange={setConfirm} />
+      {error && <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>}
+      <div className="flex gap-3 pt-2">
+        <button className="btn-secondary flex-1" onClick={onClose} disabled={loading}>Cancel</button>
+        <button className="btn-primary flex-1" onClick={submit} disabled={loading}>{loading ? 'Saving…' : 'Change PIN'}</button>
+      </div>
+    </PinModalWrap>
+  )
+}
+
+function PinResetModal({ onDone, onClose }: { onDone: () => void; onClose: () => void }) {
+  const [step, setStep] = useState<'send' | 'verify'>('send')
+  const [otp, setOtp] = useState('')
+  const [newPin, setNewPin] = useState('')
+  const [confirm, setConfirm] = useState('')
+  const [maskedEmail, setMaskedEmail] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+
+  async function sendOtp() {
+    setLoading(true); setError('')
+    try {
+      const res = await fetch('/api/settings/pin/reset', { method: 'POST' })
+      const d = await res.json()
+      if (!res.ok) { setError(d.error); return }
+      setMaskedEmail(d.maskedEmail)
+      setStep('verify')
+    } catch { setError('Failed to send OTP') } finally { setLoading(false) }
+  }
+
+  async function confirmReset() {
+    if (!/^\d{6}$/.test(otp)) { setError('Enter the 6-digit OTP from email'); return }
+    if (newPin.length !== 4) { setError('PIN must be 4 digits'); return }
+    if (newPin !== confirm) { setError('PINs do not match'); return }
+    setLoading(true); setError('')
+    try {
+      const res = await fetch('/api/settings/pin/reset', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ otp, newPin }) })
+      const d = await res.json()
+      if (!res.ok) { setError(d.error); return }
+      onDone()
+    } catch { setError('Failed to reset PIN') } finally { setLoading(false) }
+  }
+
+  return (
+    <PinModalWrap title="Reset PIN via Email" desc={step === 'send' ? "We'll send an OTP to your registered email." : `OTP sent to ${maskedEmail}`} onClose={onClose}>
+      {step === 'send' ? (
+        <>
+          <p style={{ fontSize: 13, color: 'var(--text-3)', padding: '8px 14px', background: 'var(--violet-bg)', borderRadius: 10, border: '1px solid var(--violet-border)' }}>
+            A 6-digit OTP will be sent to your registered email address. Enter it along with your new PIN to reset.
+          </p>
+          {error && <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>}
+          <div className="flex gap-3 pt-2">
+            <button className="btn-secondary flex-1" onClick={onClose} disabled={loading}>Cancel</button>
+            <button className="btn-primary flex-1" onClick={sendOtp} disabled={loading}>{loading ? 'Sending…' : 'Send OTP'}</button>
+          </div>
+        </>
+      ) : (
+        <>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>OTP (6 digits from email)</label>
+            <input
+              type="tel" inputMode="numeric" maxLength={6} value={otp}
+              onChange={e => setOtp(e.target.value.replace(/\D/g, '').slice(0, 6))}
+              className="form-input" style={{ letterSpacing: '0.4em', fontSize: 20, textAlign: 'center', fontFamily: 'monospace' }}
+              placeholder="• • • • • •"
+            />
+          </div>
+          <PinDigitInput label="New PIN" value={newPin} onChange={setNewPin} />
+          <PinDigitInput label="Confirm new PIN" value={confirm} onChange={setConfirm} />
+          {error && <p style={{ fontSize: 13, color: 'var(--red)' }}>{error}</p>}
+          <div className="flex gap-3 pt-2">
+            <button className="btn-secondary" onClick={sendOtp} disabled={loading} style={{ fontSize: 12 }}>Resend OTP</button>
+            <button className="btn-primary flex-1" onClick={confirmReset} disabled={loading}>{loading ? 'Setting PIN…' : 'Set new PIN'}</button>
+          </div>
+        </>
+      )}
+    </PinModalWrap>
   )
 }

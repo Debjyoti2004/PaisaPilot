@@ -1,16 +1,19 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Search, ChevronDown, X, Plus, Trash2, Check, CalendarDays, AlertCircle, Pencil } from 'lucide-react'
 import { NEEDS_CATS, WANTS_CATS, INV_CATS, ALL_CATS, INCOME_CATS, GROUP_DEFAULT_CAT, catsForGroup } from '@/config/categories'
 import { useViewMode } from '@/contexts/ViewContext'
+import { Portal } from '@/components/Portal'
+import { DatePicker } from '@/components/DatePicker'
 
 interface Tx {
   id: string; merchant: string; date: string; actualPaidDate?: string | null; category: string; account: string
   amount: number; type: 'income' | 'expense'; tags: string[]; wealthGroup: string | null
 }
 
-type Period = 'all-time' | 'this-month' | 'last-month' | 'last-3-months' | 'last-6-months' | 'this-year'
+type Period = 'all-time' | 'this-month' | 'last-month' | 'last-3-months' | 'last-6-months' | 'this-year' | 'custom'
 const PERIODS: { value: Period; label: string }[] = [
   { value: 'all-time',      label: 'All time'      },
   { value: 'this-month',    label: 'This month'    },
@@ -18,11 +21,22 @@ const PERIODS: { value: Period; label: string }[] = [
   { value: 'last-3-months', label: 'Last 3 months' },
   { value: 'last-6-months', label: 'Last 6 months' },
   { value: 'this-year',     label: 'This year'     },
+  { value: 'custom',        label: 'Custom range'  },
 ]
 
 const CATEGORIES = [...ALL_CATS, ...INCOME_CATS, 'Needs review']
 
-const ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
+const BUILTIN_ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
+
+type CustomCats = { needs: string[]; wants: string[]; investments: string[] }
+const EMPTY_CUSTOM_CATS: CustomCats = { needs: [], wants: [], investments: [] }
+async function fetchCustomCats(): Promise<CustomCats> {
+  try {
+    const res = await fetch('/api/user-categories')
+    if (res.ok) return await res.json()
+  } catch {}
+  return EMPTY_CUSTOM_CATS
+}
 
 const GROUP_TABS = [
   { value: '',            label: 'All',         color: 'var(--text-2)',  bg: 'var(--bg)' },
@@ -43,11 +57,21 @@ function fmtFull(n: number) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
 }
 
-function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+function PeriodSelector({
+  value, onChange, customRange, onCustomRange,
+}: {
+  value: Period; onChange: (p: Period) => void
+  customRange: { start: string; end: string }
+  onCustomRange: (r: { start: string; end: string }) => void
+}) {
   const [open, setOpen] = useState(false)
   const [pos, setPos] = useState({ top: 0, left: 0 })
+  const [tempRange, setTempRange] = useState(customRange)
   const btnRef = useRef<HTMLButtonElement>(null)
-  const label = PERIODS.find(p => p.value === value)?.label ?? 'All time'
+
+  const label = value === 'custom' && customRange.start && customRange.end
+    ? `${customRange.start} → ${customRange.end}`
+    : (PERIODS.find(p => p.value === value)?.label ?? 'All time')
 
   useEffect(() => {
     if (!open) return
@@ -59,8 +83,9 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
   function handleOpen() {
     if (btnRef.current) {
       const r = btnRef.current.getBoundingClientRect()
-      setPos({ top: r.bottom + 6, left: r.right - 180 })
+      setPos({ top: r.bottom + 6, left: r.right - 220 })
     }
+    setTempRange(customRange)
     setOpen(o => !o)
   }
 
@@ -68,21 +93,40 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
     <div style={{ flexShrink: 0 }}>
       <button ref={btnRef} className="period-badge" onClick={handleOpen}>
         <CalendarDays size={14} style={{ color: 'var(--text-3)' }} />
-        <span>{label}</span>
+        <span style={{ maxWidth: 130, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
         <ChevronDown size={13} style={{ color: 'var(--text-3)' }} />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div className="z-50 animate-slide-down" style={{ position: 'fixed', top: pos.top, left: Math.max(8, pos.left), width: 180, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
+          <div className="z-50 animate-slide-down" style={{ position: 'fixed', top: pos.top, left: Math.max(8, pos.left), width: 220, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}>
             {PERIODS.map(p => (
-              <button key={p.value} onClick={() => { onChange(p.value); setOpen(false) }}
+              <button key={p.value} onClick={() => { onChange(p.value); if (p.value !== 'custom') setOpen(false) }}
                 className="w-full text-left flex items-center gap-2 px-4 py-2.5 transition-colors"
                 style={{ fontSize: 13, fontWeight: p.value === value ? 700 : 400, color: p.value === value ? 'var(--violet)' : 'var(--text-1)', background: p.value === value ? 'var(--violet-bg)' : 'transparent', border: 'none', cursor: 'pointer' }}>
                 {p.value === value && <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--violet)' }} />}
                 {p.label}
               </button>
             ))}
+            {value === 'custom' && (
+              <div style={{ padding: '10px 12px 12px', borderTop: '1px solid var(--border)', background: 'var(--violet-bg)' }}>
+                <div style={{ marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', display: 'block', marginBottom: 3 }}>From</label>
+                  <DatePicker compact value={tempRange.start} max={tempRange.end || undefined}
+                    onChange={v => setTempRange(r => ({ ...r, start: v }))} placeholder="Start date" />
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', display: 'block', marginBottom: 3 }}>To</label>
+                  <DatePicker compact value={tempRange.end} min={tempRange.start || undefined}
+                    onChange={v => setTempRange(r => ({ ...r, end: v }))} placeholder="End date" />
+                </div>
+                <button className="btn-primary" style={{ width: '100%', padding: '7px', fontSize: 12 }}
+                  disabled={!tempRange.start || !tempRange.end}
+                  onClick={() => { onCustomRange(tempRange); setOpen(false) }}>
+                  Apply range
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -90,9 +134,13 @@ function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Peri
   )
 }
 
-function InlineCategory({ txId, current, wealthGroup, txType, onSave, readOnly }: { txId: string; current: string; wealthGroup?: string | null; txType?: string; onSave: (cat: string) => void; readOnly?: boolean }) {
+function InlineCategory({ txId, current, wealthGroup, txType, onSave, readOnly, customCats }: { txId: string; current: string; wealthGroup?: string | null; txType?: string; onSave: (cat: string) => void; readOnly?: boolean; customCats?: CustomCats }) {
   const [saving, setSaving] = useState(false)
-  const cats = txType === 'income' ? INCOME_CATS : catsForGroup(wealthGroup)
+  const builtinCats = txType === 'income' ? INCOME_CATS : catsForGroup(wealthGroup)
+  const groupKey = wealthGroup as keyof CustomCats | null
+  const extraCats = groupKey && customCats?.[groupKey] ? customCats[groupKey] : []
+  const cats = [...builtinCats, ...extraCats]
+  const allCats = cats.includes(current) ? cats : [...cats, current]
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const val = e.target.value; setSaving(true)
     try {
@@ -103,14 +151,13 @@ function InlineCategory({ txId, current, wealthGroup, txType, onSave, readOnly }
   }
   if (readOnly) return <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{current}</span>
   return (
-    <select value={cats.includes(current) ? current : cats[0]} onChange={handleChange} disabled={saving} className="inline-select" style={{ opacity: saving ? 0.5 : 1 }}>
-      {cats.map(c => <option key={c}>{c}</option>)}
+    <select value={current} onChange={handleChange} disabled={saving} className="inline-select" style={{ opacity: saving ? 0.5 : 1 }}>
+      {allCats.map(c => <option key={c}>{c}</option>)}
     </select>
   )
 }
 
-function TagPills({ txId, tags, onUpdate, readOnly }: { txId: string; tags: string[]; onUpdate: (tags: string[]) => void; readOnly?: boolean }) {
-  const [modalOpen, setModalOpen] = useState(false)
+function TagPills({ txId, tags, onUpdate, readOnly, onOpenModal }: { txId: string; tags: string[]; onUpdate: (tags: string[]) => void; readOnly?: boolean; onOpenModal?: () => void }) {
   async function removeTag(tag: string) {
     const next = tags.filter(t => t !== tag)
     try {
@@ -127,13 +174,12 @@ function TagPills({ txId, tags, onUpdate, readOnly }: { txId: string; tags: stri
         </span>
       ))}
       {!readOnly && (
-        <button onClick={() => setModalOpen(true)}
+        <button onClick={onOpenModal}
           className="flex items-center justify-center rounded-full"
           style={{ width: 22, height: 22, background: 'var(--bg-3)', border: '1px solid var(--border)', cursor: 'pointer', color: 'var(--text-3)' }}>
           <Plus size={11} />
         </button>
       )}
-      {!readOnly && modalOpen && <AddTagModal txId={txId} currentTags={tags} onSave={updated => { onUpdate(updated); setModalOpen(false) }} onClose={() => setModalOpen(false)} />}
     </div>
   )
 }
@@ -143,12 +189,15 @@ function AddTagModal({ txId, currentTags, onSave, onClose }: { txId: string; cur
   const [selected, setSelected] = useState<Set<string>>(new Set(currentTags))
   const [newTag, setNewTag] = useState('')
   const [saving, setSaving] = useState(false)
+  const [highlightedIndex, setHighlightedIndex] = useState(-1)
+
   useEffect(() => {
     fetch('/api/tags').then(r => r.json()).then(d => setAllTags(d.tags?.map((t: { name: string }) => t.name) ?? []))
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
+
   async function handleSave() {
     setSaving(true)
     try {
@@ -157,10 +206,37 @@ function AddTagModal({ txId, currentTags, onSave, onClose }: { txId: string; cur
     } catch {}
     setSaving(false)
   }
+
   const toggle = (tag: string) => { setSelected(s => { const n = new Set(s); n.has(tag) ? n.delete(tag) : n.add(tag); return n }) }
+
+  async function deleteTag(tag: string, e: React.MouseEvent) {
+    e.stopPropagation()
+    try {
+      await fetch(`/api/tags?name=${encodeURIComponent(tag)}`, { method: 'DELETE' })
+      setAllTags(p => p.filter(t => t !== tag))
+      setSelected(s => { const n = new Set(s); n.delete(tag); return n })
+    } catch {}
+  }
+
+  function addNewTag(name: string) {
+    const t = name.trim()
+    if (!t) return
+    setSelected(s => new Set(Array.from(s).concat(t)))
+    setAllTags(p => p.includes(t) ? p : [...p, t])
+    setNewTag('')
+  }
+
+  // Autocomplete: tags that match input
+  const suggestions = newTag.trim()
+    ? allTags.filter(t => t.toLowerCase().includes(newTag.trim().toLowerCase())).slice(0, 6)
+    : []
+
+  // Reset highlight when suggestions change
+  useEffect(() => { setHighlightedIndex(-1) }, [newTag])
+
   return (
     <div className="modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-      <div className="modal-box" style={{ maxWidth: 440 }}>
+      <div className="modal-box" style={{ maxWidth: 480, width: '100%' }}>
         <div className="flex items-center justify-between px-5 py-4" style={{ borderBottom: '1px solid var(--border)' }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Add tags</h3>
           <button className="btn-ghost" style={{ padding: 6 }} onClick={onClose}><X size={16} /></button>
@@ -169,17 +245,86 @@ function AddTagModal({ txId, currentTags, onSave, onClose }: { txId: string; cur
           {allTags.length > 0 && (
             <div className="flex flex-wrap gap-2 mb-4">
               {allTags.map(tag => (
-                <button key={tag} onClick={() => toggle(tag)} className="flex items-center gap-1.5 px-3 py-2 rounded-xl transition-all"
-                  style={{ fontSize: 13, fontWeight: 500, border: '1px solid', borderColor: selected.has(tag) ? 'var(--violet)' : 'var(--border)', background: selected.has(tag) ? 'var(--violet-bg)' : '#fff', color: selected.has(tag) ? 'var(--violet)' : 'var(--text-1)', cursor: 'pointer' }}>
-                  {selected.has(tag) && <Check size={12} />}{tag}
+                <button key={tag} onClick={() => toggle(tag)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl transition-all"
+                  style={{
+                    fontSize: 13, fontWeight: 500, border: '1px solid',
+                    borderColor: selected.has(tag) ? 'var(--violet)' : 'var(--border)',
+                    background: selected.has(tag) ? 'var(--violet-bg)' : '#fff',
+                    color: selected.has(tag) ? 'var(--violet)' : 'var(--text-1)',
+                    cursor: 'pointer',
+                  }}>
+                  {selected.has(tag) && <Check size={12} />}
+                  <span>{tag}</span>
+                  <span onClick={e => deleteTag(tag, e)} title="Delete tag"
+                    style={{ display: 'flex', alignItems: 'center', marginLeft: 1, padding: '1px 2px', borderRadius: 4, color: 'var(--text-3)', cursor: 'pointer' }}
+                    onMouseEnter={e => (e.currentTarget.style.color = 'var(--red)')}
+                    onMouseLeave={e => (e.currentTarget.style.color = 'var(--text-3)')}>
+                    <X size={11} />
+                  </span>
                 </button>
               ))}
             </div>
           )}
-          <div className="flex gap-2">
-            <input type="text" placeholder="New tag name" value={newTag} onChange={e => setNewTag(e.target.value)} className="form-input flex-1"
-              onKeyDown={e => { if (e.key === 'Enter' && newTag.trim()) { setSelected(s => new Set(Array.from(s).concat(newTag.trim()))); setAllTags(p => p.includes(newTag.trim()) ? p : [...p, newTag.trim()]); setNewTag('') } }} />
-            <button className="btn-secondary" style={{ padding: '10px 14px' }} onClick={() => { if (newTag.trim()) { setSelected(s => new Set(Array.from(s).concat(newTag.trim()))); setAllTags(p => p.includes(newTag.trim()) ? p : [...p, newTag.trim()]); setNewTag('') } }} disabled={!newTag.trim()}>Add</button>
+
+          {/* Input with autocomplete */}
+          <div style={{ position: 'relative' }}>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder="Type to search or create tag…"
+                value={newTag}
+                onChange={e => setNewTag(e.target.value)}
+                className="form-input flex-1"
+                autoFocus
+                onKeyDown={e => {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setHighlightedIndex(i => Math.min(i + 1, suggestions.length - 1))
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setHighlightedIndex(i => Math.max(i - 1, -1))
+                  } else if (e.key === 'Enter') {
+                    e.preventDefault()
+                    if (highlightedIndex >= 0 && suggestions[highlightedIndex]) {
+                      toggle(suggestions[highlightedIndex]); setNewTag('')
+                    } else if (suggestions.length > 0 && allTags.find(t => t.toLowerCase() === newTag.trim().toLowerCase())) {
+                      toggle(suggestions[0]); setNewTag('')
+                    } else {
+                      addNewTag(newTag)
+                    }
+                  } else if (e.key === 'Escape') {
+                    setNewTag('')
+                  }
+                }}
+              />
+              <button className="btn-secondary" style={{ padding: '10px 14px' }}
+                onClick={() => addNewTag(newTag)} disabled={!newTag.trim()}>
+                Add
+              </button>
+            </div>
+            {suggestions.length > 0 && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 56,
+                background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
+                boxShadow: 'var(--shadow-lg)', zIndex: 10, overflow: 'hidden',
+              }}>
+                {suggestions.map((s, idx) => (
+                  <button key={s} onClick={() => { toggle(s); setNewTag('') }}
+                    onMouseEnter={() => setHighlightedIndex(idx)}
+                    className="w-full text-left"
+                    style={{
+                      padding: '9px 14px', fontSize: 13, border: 'none', cursor: 'pointer',
+                      background: idx === highlightedIndex ? 'var(--violet)' : selected.has(s) ? 'var(--violet-bg)' : '#fff',
+                      color: idx === highlightedIndex ? '#fff' : selected.has(s) ? 'var(--violet)' : 'var(--text-1)',
+                      display: 'flex', alignItems: 'center', gap: 8,
+                    }}>
+                    {selected.has(s) ? <Check size={12} style={{ flexShrink: 0 }} /> : <span style={{ width: 12, flexShrink: 0 }} />}
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         </div>
         <div className="flex items-center justify-end gap-3 px-5 py-4" style={{ borderTop: '1px solid var(--border)' }}>
@@ -206,6 +351,25 @@ interface EditState { merchant: string; amount: string; date: string; account: s
 
 function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: EditState) => void; onCancel: () => void }) {
   const isIncome = tx.type === 'income'
+  const [ownMerchants, setOwnMerchants] = useState<string[]>([])
+  const [merchantSuggestions, setMerchantSuggestions] = useState<string[]>([])
+  const [merchantOpen, setMerchantOpen] = useState(false)
+  const [merchantHighlight, setMerchantHighlight] = useState(-1)
+  const merchantTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const [customCats, setCustomCats] = useState<CustomCats>(EMPTY_CUSTOM_CATS)
+  useEffect(() => { fetchCustomCats().then(setCustomCats) }, [])
+
+  const [accounts, setAccounts] = useState<string[]>(BUILTIN_ACCOUNTS)
+  useEffect(() => {
+    fetch('/api/merchants').then(r => r.json()).then(d => setOwnMerchants(d.merchants ?? []))
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      try {
+        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
+        const names = custom.map(c => c.name)
+        setAccounts([...BUILTIN_ACCOUNTS, ...names.filter(n => !BUILTIN_ACCOUNTS.includes(n))])
+      } catch {}
+    })
+  }, [])
   const [fields, setFields] = useState<EditState>({
     merchant: tx.merchant, amount: String(tx.amount), date: tx.date,
     account: tx.account, wealthGroup: tx.wealthGroup, category: tx.category,
@@ -255,7 +419,70 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
       <div className="grid gap-3" style={{ gridTemplateColumns: '1fr 1fr 1fr', marginBottom: 12 }}>
         <div>
           <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Merchant</label>
-          <input className="form-input" style={{ height: 36, fontSize: 13 }} value={fields.merchant} onChange={e => set('merchant', e.target.value)} />
+          <div className="relative">
+            <input
+              type="text"
+              className="form-input"
+              style={{ height: 36, fontSize: 13 }}
+              value={fields.merchant}
+              onChange={e => {
+                const val = e.target.value
+                set('merchant', val)
+                setMerchantOpen(true)
+                setMerchantHighlight(-1)
+                const q = val.trim().toLowerCase()
+                const localMatches = q ? ownMerchants.filter(m => m.toLowerCase().includes(q)).slice(0, 6) : []
+                setMerchantSuggestions(localMatches)
+                clearTimeout(merchantTimerRef.current)
+                if (q.length >= 2) {
+                  merchantTimerRef.current = setTimeout(() => {
+                    fetch(`/api/merchants?q=${encodeURIComponent(q)}`)
+                      .then(r => r.json())
+                      .then(d => {
+                        const server: string[] = d.merchants ?? []
+                        const seen = new Set(localMatches.map(m => m.toLowerCase()))
+                        setMerchantSuggestions([...localMatches, ...server.filter(m => !seen.has(m.toLowerCase()))].slice(0, 8))
+                      })
+                      .catch(() => {})
+                  }, 280)
+                }
+              }}
+              onFocus={() => setMerchantOpen(true)}
+              onBlur={() => setTimeout(() => setMerchantOpen(false), 150)}
+              onKeyDown={e => {
+                if (!merchantOpen || merchantSuggestions.length === 0) return
+                if (e.key === 'ArrowDown') { e.preventDefault(); setMerchantHighlight(h => Math.min(h + 1, merchantSuggestions.length - 1)) }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setMerchantHighlight(h => Math.max(h - 1, -1)) }
+                else if (e.key === 'Enter' && merchantHighlight >= 0) { e.preventDefault(); set('merchant', merchantSuggestions[merchantHighlight]); setMerchantOpen(false); setMerchantHighlight(-1) }
+                else if (e.key === 'Escape') setMerchantOpen(false)
+              }}
+              autoComplete="off"
+              spellCheck={true}
+              placeholder="Merchant"
+            />
+            {merchantOpen && merchantSuggestions.length > 0 && (
+              <div style={{
+                position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
+                boxShadow: 'var(--shadow-lg)', zIndex: 50, overflow: 'hidden',
+              }}>
+                {merchantSuggestions.map((m, i) => (
+                  <div
+                    key={m}
+                    onMouseDown={() => { set('merchant', m); setMerchantOpen(false); setMerchantHighlight(-1) }}
+                    onMouseEnter={() => setMerchantHighlight(i)}
+                    style={{
+                      padding: '8px 12px', fontSize: 13, cursor: 'pointer',
+                      background: i === merchantHighlight ? 'var(--violet)' : 'transparent',
+                      color: i === merchantHighlight ? '#fff' : 'var(--text-1)',
+                    }}
+                  >
+                    {m}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Amount (₹)</label>
@@ -263,12 +490,12 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Date</label>
-          <input type="date" className="form-input" style={{ height: 36, fontSize: 13 }} value={fields.date} onChange={e => set('date', e.target.value)} />
+          <DatePicker compact value={fields.date} onChange={v => set('date', v)} />
         </div>
         <div>
           <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Account</label>
           <select className="form-select" style={{ height: 36, fontSize: 13 }} value={fields.account} onChange={e => set('account', e.target.value)}>
-            {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+            {accounts.map(a => <option key={a}>{a}</option>)}
           </select>
         </div>
         {!isIncome && (
@@ -314,11 +541,20 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
               Subcategory <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>({fields.wealthGroup})</span>
             </label>
             <div className="relative" style={{ maxWidth: 220 }}>
-              <select className="form-select" style={{ height: 36, fontSize: 13 }}
-                value={catsForGroup(fields.wealthGroup).includes(fields.category) ? fields.category : catsForGroup(fields.wealthGroup)[0]}
-                onChange={e => setFields(f => ({ ...f, category: e.target.value }))}>
-                {catsForGroup(fields.wealthGroup).map(c => <option key={c}>{c}</option>)}
-              </select>
+              {(() => {
+                const groupKey = fields.wealthGroup as keyof CustomCats
+                const builtins = catsForGroup(fields.wealthGroup)
+                const customs = customCats[groupKey] ?? []
+                const allGroupCats = [...builtins, ...customs]
+                const opts = allGroupCats.includes(fields.category) ? allGroupCats : [...allGroupCats, fields.category]
+                return (
+                  <select className="form-select" style={{ height: 36, fontSize: 13 }}
+                    value={fields.category}
+                    onChange={e => setFields(f => ({ ...f, category: e.target.value }))}>
+                    {opts.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                )
+              })()}
               <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
             </div>
           </div>
@@ -333,24 +569,41 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
 }
 
 // ── Transactions Page ──────────────────────────────────────────
-export default function TransactionsPage() {
+function TransactionsPage() {
   const { isViewing, viewingUser, accessRevoked } = useViewMode()
+  const searchParams = useSearchParams()
   const [txns, setTxns] = useState<Tx[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [period, setPeriod] = useState<Period | null>(null)
+  const [customRange, setCustomRange] = useState({ start: '', end: '' })
   const [search, setSearch] = useState('')
-  const [accountFilter, setAccountFilter] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
+  const [accountFilter, setAccountFilter] = useState(() => searchParams.get('account') ?? '')
+  const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') ?? '')
+  const [typeFilter, setTypeFilter] = useState(() => searchParams.get('type') ?? '')
   const [groupTab, setGroupTab] = useState('')
   const [page, setPage] = useState(1)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [tagModal, setTagModal] = useState<{ txId: string; tags: string[] } | null>(null)
+  const [accounts, setAccounts] = useState<string[]>(BUILTIN_ACCOUNTS)
+  const [customCats, setCustomCats] = useState<CustomCats>(EMPTY_CUSTOM_CATS)
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const load = useCallback(async (p: Period, s: string, acc: string, cat: string, type: string, gt: string, pg: number, viewAs?: string, ownerName?: string) => {
+  useEffect(() => {
+    fetchCustomCats().then(setCustomCats)
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      try {
+        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
+        const names = custom.map((c: { name: string }) => c.name)
+        setAccounts([...BUILTIN_ACCOUNTS, ...names.filter((n: string) => !BUILTIN_ACCOUNTS.includes(n))])
+      } catch {}
+    })
+  }, [])
+
+  const load = useCallback(async (p: Period, s: string, acc: string, cat: string, type: string, gt: string, pg: number, viewAs?: string, ownerName?: string, cr?: { start: string; end: string }) => {
     setLoading(true); setError('')
     try {
       const params = new URLSearchParams({ period: p, page: String(pg) })
@@ -361,6 +614,10 @@ export default function TransactionsPage() {
       else if (gt)         params.set('wealthGroup', gt)
       else if (type)       params.set('type', type)
       if (viewAs) params.set('viewAs', viewAs)
+      if (p === 'custom' && cr?.start && cr?.end) {
+        params.set('startDate', cr.start)
+        params.set('endDate', cr.end)
+      }
       const res = await fetch(`/api/transactions?${params}`)
       if (res.status === 403) { accessRevoked(ownerName ?? 'user'); return }
       if (!res.ok) throw new Error('Failed')
@@ -376,19 +633,32 @@ export default function TransactionsPage() {
 
   useEffect(() => {
     if (period === null) return
+    if (period === 'custom' && (!customRange.start || !customRange.end)) return
     if (searchDebounce.current) clearTimeout(searchDebounce.current)
-    searchDebounce.current = setTimeout(() => load(period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, viewingUser?.id, viewingUser?.name), 300)
+    searchDebounce.current = setTimeout(() => load(period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, viewingUser?.id, viewingUser?.name, customRange), 300)
     return () => { if (searchDebounce.current) clearTimeout(searchDebounce.current) }
-  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, load, viewingUser?.id])
+  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, page, load, viewingUser?.id, customRange])
 
   useEffect(() => {
-    const handler = () => load(period ?? 'all-time', search, accountFilter, categoryFilter, typeFilter, groupTab, 1, viewingUser?.id, viewingUser?.name)
+    const handler = () => load(period ?? 'all-time', search, accountFilter, categoryFilter, typeFilter, groupTab, 1, viewingUser?.id, viewingUser?.name, customRange)
     window.addEventListener('paisapilot:refresh', handler)
     return () => window.removeEventListener('paisapilot:refresh', handler)
-  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, load, viewingUser?.id])
+  }, [period, search, accountFilter, categoryFilter, typeFilter, groupTab, load, viewingUser?.id, customRange])
+
+  // Clear selections when filters change
+  useEffect(() => {
+    setSelectedIds(new Set())
+  }, [period, accountFilter, categoryFilter, typeFilter, groupTab, search])
 
   const handlePeriodChange = (p: Period) => {
     setPeriod(p); setPage(1)
+    setSelectedIds(new Set())
+  }
+
+  const handleCustomRange = (range: { start: string; end: string }) => {
+    setCustomRange(range)
+    setPage(1)
+    setSelectedIds(new Set())
   }
 
   const updateTx = (id: string, updates: Partial<Tx>) => setTxns(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
@@ -398,6 +668,7 @@ export default function TransactionsPage() {
       await fetch(`/api/transactions?id=${id}`, { method: 'DELETE' })
       setTxns(prev => prev.filter(t => t.id !== id))
       setTotal(n => n - 1)
+      setSelectedIds(s => { const n = new Set(s); n.delete(id); return n })
     } catch {}
     setDeletingId(null)
   }
@@ -417,7 +688,7 @@ export default function TransactionsPage() {
         {GROUP_TABS.map(tab => {
           const active = groupTab === tab.value
           return (
-            <button key={tab.value} onClick={() => { setGroupTab(tab.value); setPage(1) }} style={{
+            <button key={tab.value} onClick={() => { setGroupTab(tab.value); setCategoryFilter(''); setPage(1) }} style={{
               padding: '7px 16px', borderRadius: 20, fontSize: 13, fontWeight: active ? 700 : 500,
               border: `1.5px solid ${active ? tab.color : 'var(--border)'}`,
               background: active ? tab.bg : '#ffffff',
@@ -442,7 +713,7 @@ export default function TransactionsPage() {
           <div className="relative" style={{ flexShrink: 0 }}>
             <select value={accountFilter} onChange={e => { setAccountFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 140 }}>
               <option value="">All accounts</option>
-              {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+              {accounts.map(a => <option key={a}>{a}</option>)}
             </select>
             <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
           </div>
@@ -457,13 +728,27 @@ export default function TransactionsPage() {
             </div>
           )}
           <div className="relative" style={{ flexShrink: 0 }}>
-            <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
-              <option value="">All categories</option>
-              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-            </select>
+            {(() => {
+              let baseCats: string[]
+              if (groupTab === 'needs')       baseCats = [...NEEDS_CATS, ...customCats.needs]
+              else if (groupTab === 'wants')  baseCats = [...WANTS_CATS, ...customCats.wants]
+              else if (groupTab === 'investments') baseCats = [...INV_CATS, ...customCats.investments]
+              else if (groupTab === 'income') baseCats = [...INCOME_CATS]
+              else baseCats = [...CATEGORIES, ...customCats.needs, ...customCats.wants, ...customCats.investments]
+              // Also include any unique categories from loaded transactions (covers DB cats not in localStorage)
+              const txCats = txns.map(t => t.category).filter(Boolean)
+              const extraFromTxns = txCats.filter(c => !baseCats.includes(c))
+              const filterCats = [...baseCats, ...Array.from(new Set(extraFromTxns))]
+              return (
+                <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
+                  <option value="">All categories</option>
+                  {filterCats.map(c => <option key={c}>{c}</option>)}
+                </select>
+              )
+            })()}
             <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
           </div>
-          <PeriodSelector value={period ?? 'all-time'} onChange={handlePeriodChange} />
+          <PeriodSelector value={period ?? 'all-time'} onChange={handlePeriodChange} customRange={customRange} onCustomRange={handleCustomRange} />
         </div>
       </div>
 
@@ -479,20 +764,30 @@ export default function TransactionsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th style={{ width: '32%' }}>DATE &amp; MERCHANT</th>
+                <th style={{ width: '4%', paddingRight: 0, textAlign: 'center' }}>
+                  <input type="checkbox" style={{ cursor: 'pointer', accentColor: 'var(--violet)', width: 15, height: 15 }}
+                    checked={txns.length > 0 && txns.every(t => selectedIds.has(t.id))}
+                    ref={el => { if (el) el.indeterminate = selectedIds.size > 0 && !txns.every(t => selectedIds.has(t.id)) }}
+                    onChange={e => {
+                      if (e.target.checked) setSelectedIds(new Set(txns.map(t => t.id)))
+                      else setSelectedIds(new Set())
+                    }}
+                  />
+                </th>
+                <th style={{ width: '29%' }}>DATE &amp; MERCHANT</th>
                 <th className="hidden sm:table-cell" style={{ width: '16%' }}>CATEGORY</th>
-                <th className="hidden sm:table-cell" style={{ width: '14%' }}>ACCOUNT</th>
-                <th style={{ width: '20%' }}>TAGS</th>
+                <th className="hidden sm:table-cell" style={{ width: '13%' }}>ACCOUNT</th>
+                <th style={{ width: '18%' }}>TAGS</th>
                 <th style={{ width: '14%', textAlign: 'right' }}>AMOUNT</th>
-                <th style={{ width: '8%' }}></th>
+                <th style={{ width: '6%' }}></th>
               </tr>
             </thead>
             <tbody>
               {loading && Array.from({ length: 6 }).map((_, i) => (
-                <tr key={i}>{[1,2,3,4,5,6].map(j => <td key={j}><div className="skeleton" style={{ height: 16, borderRadius: 6, width: j === 6 ? 28 : '80%' }} /></td>)}</tr>
+                <tr key={i}>{[1,2,3,4,5,6,7].map(j => <td key={j}><div className="skeleton" style={{ height: 16, borderRadius: 6, width: j === 7 ? 28 : '80%' }} /></td>)}</tr>
               ))}
               {!loading && txns.length === 0 && (
-                <tr><td colSpan={6}>
+                <tr><td colSpan={7}>
                   <div className="empty-state">
                     <div className="empty-state-icon">💳</div>
                     <p style={{ fontSize: 14, color: 'var(--text-2)', fontWeight: 500 }}>No transactions yet</p>
@@ -506,7 +801,17 @@ export default function TransactionsPage() {
                   : (tx.type === 'income' ? GROUP_BTN_META['income'] : null)
                 return (
                   <>
-                    <tr key={tx.id} style={{ background: editingId === tx.id ? 'var(--violet-bg)' : undefined }}>
+                    <tr key={tx.id} style={{ background: editingId === tx.id ? 'var(--violet-bg)' : selectedIds.has(tx.id) ? 'var(--violet-bg)' : undefined }}>
+                      <td style={{ paddingRight: 0, textAlign: 'center' }}>
+                        <input type="checkbox" style={{ cursor: 'pointer', accentColor: 'var(--violet)', width: 15, height: 15 }}
+                          checked={selectedIds.has(tx.id)}
+                          onChange={e => setSelectedIds(s => {
+                            const n = new Set(s)
+                            e.target.checked ? n.add(tx.id) : n.delete(tx.id)
+                            return n
+                          })}
+                        />
+                      </td>
                       <td>
                         <div className="flex items-center gap-2.5">
                           <div className="w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0"
@@ -532,10 +837,10 @@ export default function TransactionsPage() {
                         </div>
                       </td>
                       <td className="hidden sm:table-cell">
-                        <InlineCategory txId={tx.id} current={tx.category} wealthGroup={tx.wealthGroup} txType={tx.type} onSave={cat => updateTx(tx.id, { category: cat })} readOnly={isViewing} />
+                        <InlineCategory txId={tx.id} current={tx.category} wealthGroup={tx.wealthGroup} txType={tx.type} onSave={cat => updateTx(tx.id, { category: cat })} readOnly={isViewing} customCats={customCats} />
                       </td>
                       <td className="hidden sm:table-cell"><span style={{ fontSize: 13, color: 'var(--text-2)' }}>{tx.account}</span></td>
-                      <td><TagPills txId={tx.id} tags={tx.tags} onUpdate={tags => updateTx(tx.id, { tags })} readOnly={isViewing} /></td>
+                      <td><TagPills txId={tx.id} tags={tx.tags} onUpdate={tags => updateTx(tx.id, { tags })} readOnly={isViewing} onOpenModal={() => setTagModal({ txId: tx.id, tags: tx.tags })} /></td>
                       <td style={{ textAlign: 'right' }}>
                         {deletingId === tx.id ? (
                           <DeleteConfirm onConfirm={() => deleteTx(tx.id)} onCancel={() => setDeletingId(null)} />
@@ -563,7 +868,7 @@ export default function TransactionsPage() {
                     </tr>
                     {!isViewing && editingId === tx.id && (
                       <tr key={`${tx.id}-edit`}>
-                        <td colSpan={6} style={{ padding: 0 }}>
+                        <td colSpan={7} style={{ padding: 0 }}>
                           <InlineEditPanel
                             tx={tx}
                             onSave={fields => {
@@ -599,6 +904,73 @@ export default function TransactionsPage() {
           </div>
         )}
       </div>
+
+      {/* Tag modal — portalled to document.body so it paints above sidebar/topbar */}
+      {tagModal && (
+        <Portal>
+          <AddTagModal
+            txId={tagModal.txId}
+            currentTags={tagModal.tags}
+            onSave={updated => { updateTx(tagModal.txId, { tags: updated }); setTagModal(null) }}
+            onClose={() => setTagModal(null)}
+          />
+        </Portal>
+      )}
+
+      {/* Selection total bar */}
+      {selectedIds.size > 0 && (() => {
+        const sel = txns.filter(t => selectedIds.has(t.id))
+        const selIncome = sel.filter(t => t.type === 'income').reduce((s, t) => s + t.amount, 0)
+        const selExpenses = sel.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0)
+        const selNet = selIncome - selExpenses
+        return (
+          <div style={{
+            position: 'fixed', bottom: 24, left: '50%', transform: 'translateX(-50%)',
+            background: '#1e1b4b', borderRadius: 16, padding: '12px 20px',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.3)', display: 'flex', alignItems: 'center',
+            gap: 14, zIndex: 50, maxWidth: 'calc(100vw - 40px)', flexWrap: 'wrap',
+          }}>
+            <span style={{ fontSize: 13, fontWeight: 700, color: '#e2e8f0', whiteSpace: 'nowrap' }}>
+              {selectedIds.size} selected
+            </span>
+            <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.15)', flexShrink: 0 }} />
+            {selIncome > 0 && (
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#4ade80', whiteSpace: 'nowrap' }}>
+                +{fmtFull(selIncome)}
+              </span>
+            )}
+            {selExpenses > 0 && (
+              <span style={{ fontSize: 13, fontWeight: 600, color: '#fb923c', whiteSpace: 'nowrap' }}>
+                −{fmtFull(selExpenses)}
+              </span>
+            )}
+            {(selIncome > 0 || selExpenses > 0) && (
+              <>
+                <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.15)', flexShrink: 0 }} />
+                <span style={{ fontSize: 13, fontWeight: 800, color: selNet >= 0 ? '#4ade80' : '#f87171', whiteSpace: 'nowrap' }}>
+                  Net {selNet >= 0 ? '+' : '−'}{fmtFull(Math.abs(selNet))}
+                </span>
+              </>
+            )}
+            <div style={{ width: 1, height: 18, background: 'rgba(255,255,255,0.15)', flexShrink: 0 }} />
+            <button onClick={() => setSelectedIds(new Set())} style={{
+              background: 'rgba(255,255,255,0.1)', border: 'none', borderRadius: 8,
+              padding: '4px 10px', cursor: 'pointer', color: '#94a3b8', fontSize: 12,
+              display: 'flex', alignItems: 'center', gap: 4, fontWeight: 500,
+            }}>
+              <X size={12} /> Clear
+            </button>
+          </div>
+        )
+      })()}
     </div>
+  )
+}
+
+export default function TransactionsPageWrapper() {
+  return (
+    <Suspense>
+      <TransactionsPage />
+    </Suspense>
   )
 }

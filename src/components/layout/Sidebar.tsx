@@ -8,7 +8,7 @@ import {
   LayoutDashboard, ArrowLeftRight, RefreshCw, CreditCard,
   Wallet, FileText, BookOpen, Settings,
   Sparkles, Gauge, ChevronRight, Shield, FileSearch,
-  PanelLeftClose, PanelLeftOpen,
+  PanelLeftClose, PanelLeftOpen, StickyNote,
 } from 'lucide-react'
 
 const EXPANDED_W = 238
@@ -27,6 +27,7 @@ const NAV = [
   { href: '/wealth-plan',   label: 'Wealth Plan',  icon: Sparkles },
   { href: '/console',       label: 'Console',      icon: Gauge },
   { href: '/bank-compare',  label: 'Bank Compare', icon: FileSearch },
+  { href: '/notes',         label: 'Quick Notes',  icon: StickyNote },
 ]
 
 type Tip = { label: string; y: number }
