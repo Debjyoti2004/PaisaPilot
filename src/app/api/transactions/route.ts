@@ -61,6 +61,9 @@ export async function GET(request: NextRequest) {
     const page      = parseInt(searchParams.get('page') ?? '1', 10)
     const pageSize  = 50
 
+    const startDate = searchParams.get('startDate')
+    const endDate = searchParams.get('endDate')
+
     // Build date filter from period
     const getPeriodRange = (p: string) => {
       const now = new Date()
@@ -74,7 +77,10 @@ export async function GET(request: NextRequest) {
       }
     }
 
-    const dateFilter = getPeriodRange(period)
+    let dateFilter = getPeriodRange(period)
+    if (period === 'custom' && startDate && endDate) {
+      dateFilter = { gte: new Date(startDate + 'T00:00:00'), lte: new Date(endDate + 'T23:59:59') }
+    }
     const where: Record<string, unknown> = { userId }
     if (dateFilter) where.occurredAt = dateFilter
 

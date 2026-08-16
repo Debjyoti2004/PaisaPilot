@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useSession } from 'next-auth/react'
 import {
   BarChart, Bar, XAxis, YAxis, ResponsiveContainer, Tooltip, Cell,
@@ -12,6 +12,7 @@ import {
 import Link from 'next/link'
 import { ChartTooltip } from '@/components/ChartTooltip'
 import { useViewMode } from '@/contexts/ViewContext'
+import { DatePicker } from '@/components/DatePicker'
 
 // ── Types ─────────────────────────────────────────────────────
 interface DashboardData {
@@ -32,7 +33,7 @@ interface DashboardData {
   savedPeriod: string
 }
 
-type Period = 'all-time' | 'this-month' | 'last-month' | 'last-3-months' | 'last-6-months' | 'this-year'
+type Period = 'all-time' | 'this-month' | 'last-month' | 'last-3-months' | 'last-6-months' | 'this-year' | 'custom'
 const PERIODS: { value: Period; label: string }[] = [
   { value: 'all-time',      label: 'All time'      },
   { value: 'this-month',    label: 'This month'    },
@@ -40,6 +41,7 @@ const PERIODS: { value: Period; label: string }[] = [
   { value: 'last-3-months', label: 'Last 3 months' },
   { value: 'last-6-months', label: 'Last 6 months' },
   { value: 'this-year',     label: 'This year'     },
+  { value: 'custom',        label: 'Custom range'  },
 ]
 
 // ── Formatters ─────────────────────────────────────────────────
@@ -58,42 +60,86 @@ function getInitials(name?: string | null, email?: string | null) {
 }
 
 // ── Period selector ─────────────────────────────────────────────
-function PeriodSelector({ value, onChange }: { value: Period; onChange: (p: Period) => void }) {
+function PeriodSelector({
+  value, onChange, customRange, onCustomRange,
+}: {
+  value: Period
+  onChange: (p: Period) => void
+  customRange: { start: string; end: string }
+  onCustomRange: (r: { start: string; end: string }) => void
+}) {
   const [open, setOpen] = useState(false)
-  const label = PERIODS.find(p => p.value === value)?.label ?? 'All time'
+  const [pos, setPos] = useState({ top: 0, left: 0 })
+  const [tempRange, setTempRange] = useState(customRange)
+  const btnRef = useRef<HTMLButtonElement>(null)
+
+  const label = value === 'custom' && customRange.start && customRange.end
+    ? `${customRange.start} → ${customRange.end}`
+    : (PERIODS.find(p => p.value === value)?.label ?? 'All time')
+
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('scroll', close, true)
+    return () => window.removeEventListener('scroll', close, true)
+  }, [open])
+
+  function handleOpen() {
+    if (btnRef.current) {
+      const r = btnRef.current.getBoundingClientRect()
+      setPos({ top: r.bottom + 6, left: r.right - 220 })
+    }
+    setTempRange(customRange)
+    setOpen(o => !o)
+  }
 
   return (
-    <div className="relative">
-      <button className="period-badge" onClick={() => setOpen(o => !o)}>
+    <div style={{ flexShrink: 0 }}>
+      <button ref={btnRef} className="period-badge" onClick={handleOpen}>
         <CalendarDays size={14} style={{ color: 'var(--text-3)' }} />
-        <span>{label}</span>
+        <span style={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{label}</span>
         <ChevronDown size={13} style={{ color: 'var(--text-3)' }} />
       </button>
       {open && (
         <>
           <div className="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div
-            className="absolute left-0 sm:left-auto sm:right-0 z-50 animate-slide-down"
-            style={{ top: '100%', marginTop: 6, width: 180, background: '#fff', border: '1px solid var(--border)', borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden' }}
-          >
+          <div className="z-50 animate-slide-down" style={{
+            position: 'fixed', top: pos.top, left: Math.max(8, pos.left),
+            width: 220, background: '#fff', border: '1px solid var(--border)',
+            borderRadius: 12, boxShadow: 'var(--shadow-lg)', overflow: 'hidden',
+          }}>
             {PERIODS.map(p => (
-              <button
-                key={p.value}
-                onClick={() => { onChange(p.value); setOpen(false) }}
+              <button key={p.value} onClick={() => { onChange(p.value); if (p.value !== 'custom') setOpen(false) }}
                 className="w-full text-left flex items-center gap-2 px-4 py-2.5 transition-colors"
                 style={{
-                  fontSize: 13,
-                  fontWeight: p.value === value ? 700 : 400,
+                  fontSize: 13, fontWeight: p.value === value ? 700 : 400,
                   color: p.value === value ? 'var(--violet)' : 'var(--text-1)',
                   background: p.value === value ? 'var(--violet-bg)' : 'transparent',
-                  border: 'none',
-                  cursor: 'pointer',
-                }}
-              >
+                  border: 'none', cursor: 'pointer',
+                }}>
                 {p.value === value && <div className="w-1.5 h-1.5 rounded-full" style={{ background: 'var(--violet)' }} />}
                 {p.label}
               </button>
             ))}
+            {value === 'custom' && (
+              <div style={{ padding: '10px 12px 12px', borderTop: '1px solid var(--border)', background: 'var(--violet-bg)' }}>
+                <div style={{ marginBottom: 6 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', display: 'block', marginBottom: 3 }}>From</label>
+                  <DatePicker compact value={tempRange.start} max={tempRange.end || undefined}
+                    onChange={v => setTempRange(r => ({ ...r, start: v }))} placeholder="Start date" />
+                </div>
+                <div style={{ marginBottom: 8 }}>
+                  <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text-3)', display: 'block', marginBottom: 3 }}>To</label>
+                  <DatePicker compact value={tempRange.end} min={tempRange.start || undefined}
+                    onChange={v => setTempRange(r => ({ ...r, end: v }))} placeholder="End date" />
+                </div>
+                <button className="btn-primary" style={{ width: '100%', padding: '7px', fontSize: 12 }}
+                  disabled={!tempRange.start || !tempRange.end}
+                  onClick={() => { onCustomRange(tempRange); setOpen(false) }}>
+                  Apply range
+                </button>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -454,15 +500,20 @@ export default function DashboardPage() {
   const user = session?.user as { name?: string | null; email?: string | null; image?: string | null } | undefined
 
   const [period, setPeriod] = useState<Period>('all-time')
+  const [customRange, setCustomRange] = useState({ start: '', end: '' })
   const [data, setData] = useState<DashboardData | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
 
-  const load = useCallback(async (p: Period, viewAs?: string, ownerName?: string) => {
+  const load = useCallback(async (p: Period, viewAs?: string, ownerName?: string, cr?: { start: string; end: string }) => {
     setLoading(true); setError('')
     try {
       const params = new URLSearchParams({ period: p })
       if (viewAs) params.set('viewAs', viewAs)
+      if (p === 'custom' && cr?.start && cr?.end) {
+        params.set('startDate', cr.start)
+        params.set('endDate', cr.end)
+      }
       const res = await fetch(`/api/dashboard?${params}`)
       if (res.status === 403) { accessRevoked(ownerName ?? 'user'); return }
       if (!res.ok) throw new Error('Failed to load dashboard')
@@ -502,14 +553,19 @@ export default function DashboardPage() {
 
   // Refresh on global event
   useEffect(() => {
-    const handler = () => load(period, viewingUser?.id, viewingUser?.name)
+    const handler = () => load(period, viewingUser?.id, viewingUser?.name, period === 'custom' ? customRange : undefined)
     window.addEventListener('paisapilot:refresh', handler)
     return () => window.removeEventListener('paisapilot:refresh', handler)
-  }, [period, load, viewingUser?.id])
+  }, [period, load, viewingUser?.id, customRange])
 
   const handlePeriodChange = (p: Period) => {
     setPeriod(p)
-    load(p, viewingUser?.id, viewingUser?.name)
+    if (p !== 'custom') load(p, viewingUser?.id, viewingUser?.name)
+  }
+
+  const handleCustomRange = (range: { start: string; end: string }) => {
+    setCustomRange(range)
+    load('custom', viewingUser?.id, viewingUser?.name, range)
   }
 
   const greeting = () => {
@@ -525,7 +581,7 @@ export default function DashboardPage() {
         <AlertCircle size={32} style={{ color: 'var(--red)', margin: '0 auto 12px' }} />
         <p style={{ fontSize: 16, fontWeight: 600, color: 'var(--text-1)' }}>Failed to load dashboard</p>
         <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 4 }}>{error}</p>
-        <button className="btn-primary mt-4" onClick={() => load(period)}>Retry</button>
+        <button className="btn-primary mt-4" onClick={() => load(period, undefined, undefined, customRange)}>Retry</button>
       </div>
     </div>
   )
@@ -542,7 +598,7 @@ export default function DashboardPage() {
             A calm overview built only from your saved records.
           </p>
         </div>
-        <PeriodSelector value={period} onChange={handlePeriodChange} />
+        <PeriodSelector value={period} onChange={handlePeriodChange} customRange={customRange} onCustomRange={handleCustomRange} />
       </div>
 
       {/* Loading skeleton */}

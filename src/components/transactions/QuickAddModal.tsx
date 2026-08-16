@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { X, Mic, MicOff, Check, ChevronLeft, IndianRupee, Pencil } from 'lucide-react'
 import { formatINR } from '@/lib/finance'
+import { DatePicker } from '@/components/DatePicker'
 
 const QUICK_AMOUNTS = [100, 500, 1000, 2000, 5000]
 const NUMPAD = ['1','2','3','4','5','6','7','8','9','.','0','⌫']
@@ -480,11 +481,9 @@ export function QuickAddModal({ isOpen, onClose, onSuccess, transaction }: Props
               {/* Date */}
               <div>
                 <label className="text-[10px] uppercase tracking-widest text-slate-600 block mb-1.5">Date</label>
-                <input
-                  type="date"
-                  value={date}
-                  onChange={e => setDate(e.target.value)}
-                  className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl px-3.5 py-2.5 text-[13px] text-white focus:outline-none focus:border-indigo-500/50 transition-colors"
+                <DatePicker
+                  compact value={date} onChange={setDate}
+                  inputStyle={{ background: 'rgba(255,255,255,0.06)', border: '1px solid rgba(255,255,255,0.1)', color: '#fff', borderRadius: 12 }}
                 />
               </div>
 

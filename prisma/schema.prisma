@@ -271,6 +271,13 @@ model AppSettings {
 
   // Salary carryover: treat income on day 25-31 of prev month as this month
   salaryCarryover    Boolean @default(false)
+
+  // PIN lock
+  pinEnabled      Boolean   @default(false)
+  pinHash         String?
+  pinOtp          String?
+  pinOtpExpiry    DateTime?
+  pinPromptSeen   Boolean   @default(false)
 }
 
 // Wealth Plan (Warikoo model) — per user, stored in DB

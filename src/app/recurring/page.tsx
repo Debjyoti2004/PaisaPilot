@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, Check, RotateCcw, ChevronDown, Edit2, Trash2, RefreshCw } from 'lucide-react'
 import { useViewMode } from '@/contexts/ViewContext'
+import { DatePicker } from '@/components/DatePicker'
 
 interface RecurringPayment {
   id: string; name: string; amount: number; cadence: string
@@ -140,7 +141,7 @@ function EditModal({ existing, onClose, onSaved }: {
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Next date</label>
-              <input type="date" className="form-input" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+              <DatePicker value={nextDate} onChange={setNextDate} />
             </div>
           </div>
           <label className="flex items-center gap-2.5 cursor-pointer" style={{ fontSize: 13, color: 'var(--text-2)' }}>

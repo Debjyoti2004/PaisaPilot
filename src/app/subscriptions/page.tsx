@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { createPortal } from 'react-dom'
 import { Plus, X, Check, Edit2, Trash2, ChevronDown, RotateCcw } from 'lucide-react'
 import { useViewMode } from '@/contexts/ViewContext'
+import { DatePicker } from '@/components/DatePicker'
 
 interface Sub {
   id: string; name: string; amount: number; cadence: string
@@ -125,7 +126,7 @@ function SubModal({ existing, onClose, onSaved }: {
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Next billing</label>
-              <input type="date" className="form-input" value={nextDate} onChange={e => setNextDate(e.target.value)} />
+              <DatePicker value={nextDate} onChange={setNextDate} />
             </div>
           </div>
           {err && <p style={{ fontSize: 13, color: 'var(--red)', background: 'var(--red-bg)', padding: '10px 14px', borderRadius: 8 }}>{err}</p>}

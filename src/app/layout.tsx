@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from 'next'
 import './globals.css'
 import { AuthSessionProvider } from '@/components/providers/AuthSessionProvider'
 import { AppShell } from '@/components/layout/AppShell'
+import { PinLock } from '@/components/PinLock'
 
 export const metadata: Metadata = {
   title: 'PaisaPilot — Personal Finance',
@@ -21,9 +22,10 @@ export const viewport: Viewport = {
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body className="antialiased">
+    <html lang="en" spellCheck={true}>
+      <body className="antialiased" autoCorrect="on" autoCapitalize="sentences">
         <AuthSessionProvider>
+          <PinLock />
           <AppShell>{children}</AppShell>
         </AuthSessionProvider>
       </body>

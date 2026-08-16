@@ -5,6 +5,7 @@ import { X, IndianRupee, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { clsx } from 'clsx'
+import { DatePicker } from '@/components/DatePicker'
 
 // Smart merchant → category mapping
 const MERCHANT_HINTS: Record<string, string> = {
@@ -311,12 +312,10 @@ export function AddTransactionModal({ isOpen, onClose, onSuccess }: AddTransacti
           </div>
 
           {/* Date */}
-          <Input
-            label="Date"
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-          />
+          <div>
+            <label className="block text-xs font-medium text-text-secondary mb-1.5 uppercase tracking-wider">Date</label>
+            <DatePicker value={date} onChange={setDate} />
+          </div>
 
           {/* Error */}
           {error && (

@@ -1,10 +1,11 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { Cloud, Upload, Plus, X, Calendar, Tag, ChevronDown, Bell } from 'lucide-react'
+import { Cloud, Upload, Plus, X, Tag, ChevronDown, Bell } from 'lucide-react'
 import NotificationPanel from './NotificationPanel'
 import { INCOME_CATS } from '@/config/categories'
 import { useViewMode } from '@/contexts/ViewContext'
+import { DatePicker } from '@/components/DatePicker'
 
 interface TopBarProps {
   title: string
@@ -181,20 +182,36 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
   }
 
   const [merchant, setMerchant] = useState('')
+  const [ownMerchants, setOwnMerchants] = useState<string[]>([])
+  const [merchantSuggestions, setMerchantSuggestions] = useState<string[]>([])
+  const [merchantHighlight, setMerchantHighlight] = useState(-1)
+  const [merchantOpen, setMerchantOpen] = useState(false)
+  const merchantTimerRef = useRef<ReturnType<typeof setTimeout>>()
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10))
   const [category, setCategory] = useState('')
   const [incomeCategory, setIncomeCategory] = useState('Salary')
   const [customInput, setCustomInput] = useState('')
   const [account, setAccount] = useState('Savings Account')
   const [tag, setTag] = useState('')
+  const [allTags, setAllTags] = useState<string[]>([])
+  const [tagHighlight, setTagHighlight] = useState(-1)
+  const [tagOpen, setTagOpen] = useState(false)
   const [hasReceipt, setHasReceipt] = useState(false)
   const [receiptName, setReceiptName] = useState('')
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [customCats, setCustomCats] = useState<CustomCats>({ needs: [], wants: [], investments: [] })
 
+  const tagSuggestions = tag.trim()
+    ? allTags.filter(t => t.toLowerCase().includes(tag.trim().toLowerCase())).slice(0, 6)
+    : []
+
+  useEffect(() => { setTagHighlight(-1) }, [tag])
+
   useEffect(() => {
     setCustomCats(loadCustomCats())
+    fetch('/api/tags').then(r => r.json()).then(d => setAllTags(d.tags?.map((t: { name: string }) => t.name) ?? []))
+    fetch('/api/merchants').then(r => r.json()).then(d => setOwnMerchants(d.merchants ?? []))
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -301,8 +318,74 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>
                 {type === 'income' ? 'Source / employer' : 'Merchant or source'}
               </label>
-              <input type="text" placeholder="Name" value={merchant}
-                onChange={e => setMerchant(e.target.value)} className="form-input" />
+              <div className="relative">
+                <input
+                  type="text"
+                  placeholder="Name"
+                  value={merchant}
+                  onChange={e => {
+                    const val = e.target.value
+                    setMerchant(val)
+                    setMerchantOpen(true)
+                    setMerchantHighlight(-1)
+                    // Immediate: filter own merchants + learned
+                    const q = val.trim().toLowerCase()
+                    const localMatches = q
+                      ? ownMerchants.filter(m => m.toLowerCase().includes(q)).slice(0, 6)
+                      : []
+                    setMerchantSuggestions(localMatches)
+                    // Debounce: search 10k list on server
+                    clearTimeout(merchantTimerRef.current)
+                    if (q.length >= 2) {
+                      merchantTimerRef.current = setTimeout(() => {
+                        fetch(`/api/merchants?q=${encodeURIComponent(q)}`)
+                          .then(r => r.json())
+                          .then(d => {
+                            const server: string[] = d.merchants ?? []
+                            const seen = new Set(localMatches.map(m => m.toLowerCase()))
+                            const extras = server.filter(m => !seen.has(m.toLowerCase()))
+                            setMerchantSuggestions([...localMatches, ...extras].slice(0, 8))
+                          })
+                          .catch(() => {})
+                      }, 280)
+                    }
+                  }}
+                  onFocus={() => { setMerchantOpen(true) }}
+                  onBlur={() => setTimeout(() => setMerchantOpen(false), 150)}
+                  onKeyDown={e => {
+                    if (!merchantOpen || merchantSuggestions.length === 0) return
+                    if (e.key === 'ArrowDown') { e.preventDefault(); setMerchantHighlight(h => Math.min(h + 1, merchantSuggestions.length - 1)) }
+                    else if (e.key === 'ArrowUp') { e.preventDefault(); setMerchantHighlight(h => Math.max(h - 1, -1)) }
+                    else if (e.key === 'Enter' && merchantHighlight >= 0) { e.preventDefault(); setMerchant(merchantSuggestions[merchantHighlight]); setMerchantOpen(false); setMerchantHighlight(-1) }
+                    else if (e.key === 'Escape') setMerchantOpen(false)
+                  }}
+                  className="form-input"
+                  autoComplete="off"
+                  spellCheck={true}
+                />
+                {merchantOpen && merchantSuggestions.length > 0 && (
+                  <div style={{
+                    position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                    background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
+                    boxShadow: 'var(--shadow-lg)', zIndex: 50, overflow: 'hidden',
+                  }}>
+                    {merchantSuggestions.map((m, i) => (
+                      <div
+                        key={m}
+                        onMouseDown={() => { setMerchant(m); setMerchantOpen(false); setMerchantHighlight(-1) }}
+                        onMouseEnter={() => setMerchantHighlight(i)}
+                        style={{
+                          padding: '8px 12px', fontSize: 13, cursor: 'pointer',
+                          background: i === merchantHighlight ? 'var(--violet)' : 'transparent',
+                          color: i === merchantHighlight ? '#fff' : 'var(--text-1)',
+                        }}
+                      >
+                        {m}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 
@@ -310,11 +393,7 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Date</label>
-              <div className="relative">
-                <Calendar size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
-                <input type="date" value={date} onChange={e => setDate(e.target.value)}
-                  className="form-input" style={{ paddingLeft: 32 }} />
-              </div>
+              <DatePicker value={date} onChange={setDate} />
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Account</label>
@@ -401,9 +480,46 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
           <div>
             <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Tag (optional)</label>
             <div className="relative">
-              <Tag size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)' }} />
-              <input type="text" placeholder="Tag name only" value={tag}
-                onChange={e => setTag(e.target.value)} className="form-input" style={{ paddingLeft: 32 }} />
+              <Tag size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', zIndex: 1, pointerEvents: 'none' }} />
+              <input
+                type="text"
+                placeholder="Tag name only"
+                value={tag}
+                onChange={e => { setTag(e.target.value); setTagOpen(true) }}
+                onFocus={() => setTagOpen(true)}
+                onBlur={() => setTimeout(() => setTagOpen(false), 150)}
+                onKeyDown={e => {
+                  if (!tagOpen || tagSuggestions.length === 0) return
+                  if (e.key === 'ArrowDown') { e.preventDefault(); setTagHighlight(h => Math.min(h + 1, tagSuggestions.length - 1)) }
+                  else if (e.key === 'ArrowUp') { e.preventDefault(); setTagHighlight(h => Math.max(h - 1, -1)) }
+                  else if (e.key === 'Enter' && tagHighlight >= 0) { e.preventDefault(); setTag(tagSuggestions[tagHighlight]); setTagOpen(false); setTagHighlight(-1) }
+                }}
+                className="form-input"
+                style={{ paddingLeft: 32 }}
+                autoComplete="off"
+              />
+              {tagOpen && tagSuggestions.length > 0 && (
+                <div style={{
+                  position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0,
+                  background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
+                  boxShadow: 'var(--shadow-lg)', zIndex: 50, overflow: 'hidden',
+                }}>
+                  {tagSuggestions.map((s, i) => (
+                    <div
+                      key={s}
+                      onMouseDown={() => { setTag(s); setTagOpen(false); setTagHighlight(-1) }}
+                      onMouseEnter={() => setTagHighlight(i)}
+                      style={{
+                        padding: '8px 12px', fontSize: 13, cursor: 'pointer',
+                        background: i === tagHighlight ? 'var(--violet)' : 'transparent',
+                        color: i === tagHighlight ? '#fff' : 'var(--text-1)',
+                      }}
+                    >
+                      {s}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           </div>
 

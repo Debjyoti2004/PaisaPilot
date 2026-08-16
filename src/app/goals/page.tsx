@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { Plus, X, Target, TrendingUp, Trash2 } from 'lucide-react'
 import { useViewMode } from '@/contexts/ViewContext'
+import { DatePicker } from '@/components/DatePicker'
 
 interface Goal {
   id: string; name: string; icon: string; color: string
@@ -91,8 +92,7 @@ function AddGoalModal({ onClose, onSaved }: { onClose: () => void; onSaved: () =
             </div>
             <div>
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Deadline (optional)</label>
-              <input type="date" className="form-input"
-                value={form.deadline} onChange={e => setForm(f => ({ ...f, deadline: e.target.value }))} />
+              <DatePicker value={form.deadline} onChange={v => setForm(f => ({ ...f, deadline: v }))} />
             </div>
           </div>
           {err && <p style={{ fontSize: 13, color: 'var(--red)', background: 'var(--red-bg)', padding: '10px 14px', borderRadius: 8 }}>{err}</p>}
