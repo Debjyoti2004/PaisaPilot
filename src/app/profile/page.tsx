@@ -60,7 +60,7 @@ function SettingRow({ label, note, action }: { label: string; note?: string; act
 export default function ProfilePage() {
   const { data: session } = useSession()
   const [settings, setSettings] = useState<AppSettings>({
-    expectedSalary: 37000, savingsFloor: 3000,
+    expectedSalary: 0, savingsFloor: 0,
     emailReports: false, reportEmail: '', salaryCarryover: false,
   })
   const [saved, setSaved] = useState(false)
@@ -133,13 +133,18 @@ export default function ProfilePage() {
   const isGoogle = !!(session as { user?: { provider?: string } } | null)?.user
 
   if (loading) return (
-    <div className="p-6 space-y-4 max-w-2xl mx-auto">
+    <div className="p-6 space-y-4">
       {[140, 200, 180, 160].map((h, i) => <div key={i} className="card skeleton" style={{ height: h }} />)}
     </div>
   )
 
   return (
-    <div className="p-6 space-y-5 max-w-2xl mx-auto">
+    <div className="p-6 space-y-5">
+
+      <div>
+        <h2 style={{ fontSize: 24, fontWeight: 800, color: 'var(--text-1)' }}>Profile</h2>
+        <p style={{ fontSize: 14, color: 'var(--text-3)', marginTop: 4 }}>Manage your account, preferences, and notifications.</p>
+      </div>
 
       {/* User card */}
       <div className="card p-6" style={{ background: 'linear-gradient(135deg, var(--violet-bg) 0%, #fff 100%)' }}>

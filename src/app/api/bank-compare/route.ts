@@ -13,6 +13,7 @@ export async function POST(request: NextRequest) {
     const userId = await requireUserId()
     const body = await request.json()
     const rows: CsvRow[] = body.rows ?? []
+    const accountId: string | undefined = body.accountId
 
     if (!rows.length) return NextResponse.json({ error: 'No rows provided' }, { status: 400 })
 
@@ -25,12 +26,24 @@ export async function POST(request: NextRequest) {
     minDate.setDate(minDate.getDate() - 3) // ±3 day tolerance
     maxDate.setDate(maxDate.getDate() + 3)
 
+    // Build account filter — support both migrated (accountId FK) and legacy (account name)
+    let accountFilter: Record<string, unknown> = {}
+    if (accountId) {
+      const fa = await prisma.financialAccount.findUnique({ where: { id: accountId }, select: { name: true } })
+      if (fa) {
+        accountFilter = { OR: [{ accountId }, { accountId: null, account: fa.name }] }
+      } else {
+        accountFilter = { accountId }
+      }
+    }
+
     // Fetch existing transactions in that date range
     const txns = await prisma.transaction.findMany({
       where: {
         userId,
         type: 'debit',
         occurredAt: { gte: minDate, lte: maxDate },
+        ...accountFilter,
       },
       select: { id: true, narration: true, amount: true, occurredAt: true, account: true },
     })

@@ -8,7 +8,7 @@ import { DatePicker } from '@/components/DatePicker'
 
 interface Sub {
   id: string; name: string; amount: number; cadence: string
-  category: string; nextDate: string; active: boolean
+  category: string; account: string | null; nextDate: string; active: boolean
 }
 interface Suggestion {
   patternKey: string; name: string; amount: number; cadence: string
@@ -46,8 +46,22 @@ function SubModal({ existing, onClose, onSaved }: {
   const [nextDate, setNextDate] = useState(existing?.nextDate ?? new Date().toISOString().slice(0, 10))
   const [saving, setSaving]     = useState(false)
   const [err, setErr]           = useState('')
+  const [finAccounts, setFinAccounts] = useState<{ id: string; name: string }[]>([])
+  const [accountId, setAccountId]     = useState('')
 
   useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    fetch('/api/fin-accounts').then(r => r.json()).then(d => {
+      const accs = d.accounts ?? []
+      setFinAccounts(accs)
+      if (existing?.account) {
+        const match = accs.find((a: { id: string; name: string }) => a.name === existing.account)
+        setAccountId(match?.id ?? accs[0]?.id ?? '')
+      } else {
+        setAccountId(accs[0]?.id ?? '')
+      }
+    }).catch(() => {})
+  }, [existing?.account])
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', h)
@@ -74,8 +88,8 @@ function SubModal({ existing, onClose, onSaved }: {
     try {
       const method = existing ? 'PATCH' : 'POST'
       const body = existing
-        ? { id: existing.id, name: name.trim(), amount: amt, cadence, category, nextDate, isSubType: true }
-        : { name: name.trim(), amount: amt, cadence, category, nextDate, isSubType: true }
+        ? { id: existing.id, name: name.trim(), amount: amt, cadence, category, nextDate, isSubType: true, accountId: accountId || undefined }
+        : { name: name.trim(), amount: amt, cadence, category, nextDate, isSubType: true, accountId: accountId || undefined }
       const res = await fetch('/api/recurring', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) throw new Error((await res.json()).error ?? 'Failed')
       onSaved(); onClose()
@@ -129,6 +143,16 @@ function SubModal({ existing, onClose, onSaved }: {
               <DatePicker value={nextDate} onChange={setNextDate} />
             </div>
           </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Account</label>
+            <div className="relative">
+              <select className="form-select" value={accountId} onChange={e => setAccountId(e.target.value)}>
+                <option value="">No account</option>
+                {finAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
+          </div>
           {err && <p style={{ fontSize: 13, color: 'var(--red)', background: 'var(--red-bg)', padding: '10px 14px', borderRadius: 8 }}>{err}</p>}
         </div>
         <div className="flex gap-3 px-6 py-4 justify-end" style={{ borderTop: '1px solid var(--border)' }}>
@@ -155,7 +179,16 @@ export default function SubscriptionsPage() {
   const [confirmingPay, setConfirmingPay] = useState<string | null>(null)
   const [useNextMonth, setUseNextMonth]   = useState(false)
   const [payAccount, setPayAccount]       = useState('')
-  const [accounts, setAccounts]           = useState<string[]>(['Savings Account','Salary Account','Cash','Credit Card','Debit Card'])
+  const [accounts, setAccounts]           = useState<{ id: string; name: string }[]>([])
+
+  // Pre-select saved account when confirm panel opens
+  useEffect(() => {
+    if (!confirmingPay) return
+    const sub = subs.find(s => s.id === confirmingPay)
+    if (!sub?.account) return
+    const match = accounts.find(a => a.name === sub.account)
+    if (match) setPayAccount(match.id)
+  }, [confirmingPay, subs, accounts])
 
   const load = useCallback(async (viewAs?: string, ownerName?: string) => {
     setLoading(true)
@@ -171,13 +204,10 @@ export default function SubscriptionsPage() {
 
   useEffect(() => {
     load(viewingUser?.id, viewingUser?.name)
-    fetch('/api/settings').then(r => r.json()).then(d => {
-      try {
-        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
-        const names = custom.map((c: { name: string }) => c.name)
-        const base = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
-        setAccounts([...base, ...names.filter((n: string) => !base.includes(n))])
-      } catch {}
+    fetch('/api/fin-accounts').then(r => r.json()).then((d: { accounts: { id: string; name: string }[] }) => {
+      const accs = d.accounts ?? []
+      setAccounts(accs)
+      if (accs.length > 0) setPayAccount(accs[0].id)
     }).catch(() => {})
   }, [load, viewingUser?.id])
 
@@ -200,7 +230,7 @@ export default function SubscriptionsPage() {
     try {
       await fetch('/api/recurring', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, action: 'mark-paid', useNextMonthDate, account: payAccount || undefined }),
+        body: JSON.stringify({ id, action: 'mark-paid', useNextMonthDate, accountId: payAccount || undefined }),
       })
       await load()
       window.dispatchEvent(new Event('paisapilot:refresh'))
@@ -322,6 +352,7 @@ export default function SubscriptionsPage() {
                     <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }}>{s.name}</p>
                     <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>
                       {s.category} · {CADENCE_LABELS[s.cadence] ?? s.cadence}
+                      {s.account && ` · ${s.account}`}
                     </p>
                   </div>
                   <div className="text-right flex-shrink-0">
@@ -378,7 +409,7 @@ export default function SubscriptionsPage() {
                           onChange={e => setPayAccount(e.target.value)}
                         >
                           <option value="">Select account…</option>
-                          {accounts.map(a => <option key={a}>{a}</option>)}
+                          {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                         </select>
                         <ChevronDown size={12} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
                       </div>

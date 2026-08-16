@@ -88,6 +88,25 @@ function LockScreen({ onVerified, onForgot }: { onVerified: () => void; onForgot
   }
   function del() { setDigits(d => d.slice(0, -1)); setError('') }
 
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (loading) return
+      if (/^\d$/.test(e.key)) {
+        setError('')
+        setDigits(prev => {
+          const next = [...prev, e.key].slice(0, 4)
+          if (next.length === 4) setTimeout(() => verify(next.join('')), 80)
+          return next
+        })
+      } else if (e.key === 'Backspace') {
+        setDigits(d => d.slice(0, -1))
+        setError('')
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [loading, verify])
+
   return (
     <DarkBg>
       {/* Logo */}
@@ -217,6 +236,16 @@ function SetupEnter({ onDone, onSkip }: { onDone: () => void; onSkip: () => void
   }
 
   function del() { setDigits(d => d.slice(0, -1)); setError('') }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (loading) return
+      if (/^\d$/.test(e.key)) press(e.key)
+      else if (e.key === 'Backspace') del()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  })
 
   async function save(pin: string) {
     setLoading(true)

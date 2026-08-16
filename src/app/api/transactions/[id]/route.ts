@@ -80,6 +80,28 @@ export async function DELETE(
       })
     }
 
+    // When deleting a transfer credit that paid specific bills → un-mark those bills
+    const unmarkBills = async (creditTxId: string) => {
+      await prisma.transaction.updateMany({
+        where: { userId, linkedTxId: creditTxId, cardPaid: true, isTransfer: false },
+        data: { cardPaid: false, linkedTxId: null },
+      })
+    }
+
+    if (existing.isTransfer) {
+      if (existing.type === 'credit') {
+        await unmarkBills(id)
+      }
+      // Delete the linked side of the transfer pair as well
+      if (existing.linkedTxId) {
+        const linked = await prisma.transaction.findUnique({ where: { id: existing.linkedTxId } })
+        if (linked && linked.userId === userId) {
+          if (linked.type === 'credit') await unmarkBills(linked.id)
+          await prisma.transaction.delete({ where: { id: existing.linkedTxId } })
+        }
+      }
+    }
+
     await prisma.transaction.delete({ where: { id } })
     return NextResponse.json({ success: true })
   } catch (err) {

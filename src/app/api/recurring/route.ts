@@ -121,7 +121,7 @@ export async function POST(request: NextRequest) {
   try {
     const userId = await requireUserId()
     const body = await request.json()
-    const { name, amount, cadence, category, account, isSubType, nextDate, patternKey } = body
+    const { name, amount, cadence, category, account, accountId: newAccId, isSubType, nextDate, patternKey } = body
 
     if (!name || !amount || !cadence) {
       return NextResponse.json({ error: 'name, amount, cadence required' }, { status: 400 })
@@ -129,11 +129,18 @@ export async function POST(request: NextRequest) {
 
     const dateStr = nextDate ?? new Date().toISOString().slice(0, 10)
 
+    // Resolve account name from accountId if provided
+    let resolvedAccount: string | null = account ?? null
+    if (newAccId && !resolvedAccount) {
+      const fa = await prisma.financialAccount.findUnique({ where: { id: newAccId } })
+      if (fa && fa.userId === userId) resolvedAccount = fa.name
+    }
+
     const payment = await prisma.recurringPayment.create({
       data: {
         userId, name, amount: parseFloat(amount), cadence,
         category: category ?? 'Other',
-        account: account ?? null,
+        account: resolvedAccount,
         isSubType: isSubType ?? false,
         nextDate: dateStr,
         active: true,
@@ -197,6 +204,21 @@ export async function PATCH(request: NextRequest) {
           : now
         const actualPaidDate = useNextMonthDate ? now : null
 
+        // Resolve account name + ID from whichever field was provided
+        let txAccountId: string | null = body.accountId ?? null
+        let txAccountName: string = existing.account || 'Savings Account'
+        if (txAccountId) {
+          const fa = await prisma.financialAccount.findFirst({ where: { id: txAccountId, userId } })
+          if (fa) txAccountName = fa.name
+        } else if (body.account) {
+          txAccountName = body.account
+          const fa = await prisma.financialAccount.findFirst({ where: { name: body.account, userId } })
+          if (fa) txAccountId = fa.id
+        } else {
+          const fa = await prisma.financialAccount.findFirst({ where: { name: txAccountName, userId } })
+          if (fa) txAccountId = fa.id
+        }
+
         await prisma.transaction.create({
           data: {
             userId,
@@ -206,7 +228,8 @@ export async function PATCH(request: NextRequest) {
             narration: `${existing.name} (recurring)`,
             merchant: existing.name,
             occurredAt,
-            account: body.account || existing.account || 'Savings Account',
+            account: txAccountName,
+            accountId: txAccountId,
             ...(wealthGroup ? { wealthGroup } : {}),
             ...(actualPaidDate ? { actualPaidDate } : {}),
           },
@@ -214,6 +237,13 @@ export async function PATCH(request: NextRequest) {
       }
 
       return NextResponse.json({ payment })
+    }
+
+    // Resolve account name from accountId if provided in edit
+    let editAccount: string | undefined = updates.account ?? undefined
+    if (updates.accountId) {
+      const fa = await prisma.financialAccount.findUnique({ where: { id: updates.accountId } })
+      if (fa && fa.userId === userId) editAccount = fa.name
     }
 
     const payment = await prisma.recurringPayment.update({
@@ -226,6 +256,7 @@ export async function PATCH(request: NextRequest) {
         nextDate:  updates.nextDate  ?? undefined,
         active:    updates.active    !== undefined ? updates.active : undefined,
         isSubType: updates.isSubType !== undefined ? updates.isSubType : undefined,
+        account:   editAccount,
       },
     })
     return NextResponse.json({ payment })

@@ -63,8 +63,22 @@ function EditModal({ existing, onClose, onSaved }: {
   const [isSubType, setIsSubType] = useState(existing?.isSubType ?? false)
   const [saving, setSaving]       = useState(false)
   const [err, setErr]             = useState('')
+  const [finAccounts, setFinAccounts] = useState<{ id: string; name: string }[]>([])
+  const [accountId, setAccountId]     = useState('')
 
   useEffect(() => { setMounted(true) }, [])
+  useEffect(() => {
+    fetch('/api/fin-accounts').then(r => r.json()).then(d => {
+      const accs = d.accounts ?? []
+      setFinAccounts(accs)
+      if (existing?.account) {
+        const match = accs.find((a: { id: string; name: string }) => a.name === existing.account)
+        setAccountId(match?.id ?? accs[0]?.id ?? '')
+      } else {
+        setAccountId(accs[0]?.id ?? '')
+      }
+    }).catch(() => {})
+  }, [existing?.account])
   useEffect(() => {
     const h = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', h)
@@ -91,8 +105,8 @@ function EditModal({ existing, onClose, onSaved }: {
     try {
       const method = existing ? 'PATCH' : 'POST'
       const body = existing
-        ? { id: existing.id, name: name.trim(), amount: amt, cadence, category, nextDate, isSubType }
-        : { name: name.trim(), amount: amt, cadence, category, nextDate, isSubType }
+        ? { id: existing.id, name: name.trim(), amount: amt, cadence, category, nextDate, isSubType, accountId: accountId || undefined }
+        : { name: name.trim(), amount: amt, cadence, category, nextDate, isSubType, accountId: accountId || undefined }
       const res = await fetch('/api/recurring', { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       if (!res.ok) throw new Error((await res.json()).error ?? 'Save failed')
       onSaved(); onClose()
@@ -144,6 +158,16 @@ function EditModal({ existing, onClose, onSaved }: {
               <DatePicker value={nextDate} onChange={setNextDate} />
             </div>
           </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Account</label>
+            <div className="relative">
+              <select className="form-select" value={accountId} onChange={e => setAccountId(e.target.value)}>
+                <option value="">No account</option>
+                {finAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
+          </div>
           <label className="flex items-center gap-2.5 cursor-pointer" style={{ fontSize: 13, color: 'var(--text-2)' }}>
             <input type="checkbox" checked={isSubType} onChange={e => setIsSubType(e.target.checked)} style={{ accentColor: 'var(--violet)', width: 16, height: 16 }} />
             Mark as subscription
@@ -174,7 +198,16 @@ export default function RecurringPage() {
   const [confirmingPay, setConfirmingPay] = useState<string | null>(null)
   const [useNextMonth, setUseNextMonth]   = useState(false)
   const [payAccount, setPayAccount]       = useState('')
-  const [accounts, setAccounts]           = useState<string[]>(['Savings Account','Salary Account','Cash','Credit Card','Debit Card'])
+  const [accounts, setAccounts]           = useState<{ id: string; name: string }[]>([])
+
+  // Pre-select saved account when confirm panel opens
+  useEffect(() => {
+    if (!confirmingPay) return
+    const payment = payments.find(p => p.id === confirmingPay)
+    if (!payment?.account) return
+    const match = accounts.find(a => a.name === payment.account)
+    if (match) setPayAccount(match.id)
+  }, [confirmingPay, payments, accounts])
 
   const load = useCallback(async (viewAs?: string, ownerName?: string) => {
     setLoading(true)
@@ -190,13 +223,10 @@ export default function RecurringPage() {
 
   useEffect(() => {
     load(viewingUser?.id, viewingUser?.name)
-    fetch('/api/settings').then(r => r.json()).then(d => {
-      try {
-        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
-        const names = custom.map((c: { name: string }) => c.name)
-        const base = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
-        setAccounts([...base, ...names.filter((n: string) => !base.includes(n))])
-      } catch {}
+    fetch('/api/fin-accounts').then(r => r.json()).then((d: { accounts: { id: string; name: string }[] }) => {
+      const accs = d.accounts ?? []
+      setAccounts(accs)
+      if (accs.length > 0) setPayAccount(accs[0].id)
     }).catch(() => {})
   }, [load, viewingUser?.id])
 
@@ -215,7 +245,7 @@ export default function RecurringPage() {
     try {
       await fetch('/api/recurring', {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id, action: 'mark-paid', useNextMonthDate, account: account || payAccount || undefined }),
+        body: JSON.stringify({ id, action: 'mark-paid', useNextMonthDate, accountId: account || payAccount || undefined }),
       })
       await load()
       window.dispatchEvent(new Event('paisapilot:refresh'))
@@ -440,11 +470,11 @@ export default function RecurringPage() {
                       <select
                         className="form-select"
                         style={{ height: 32, fontSize: 12, paddingRight: 28, minWidth: 150 }}
-                        value={payAccount || p.account || ''}
+                        value={payAccount}
                         onChange={e => setPayAccount(e.target.value)}
                       >
                         <option value="">Select account…</option>
-                        {accounts.map(a => <option key={a}>{a}</option>)}
+                        {accounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                       </select>
                       <ChevronDown size={12} style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
                     </div>

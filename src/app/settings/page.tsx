@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
 import { useSession, signOut } from 'next-auth/react'
 import { useSearchParams } from 'next/navigation'
-import { Save, Cloud, Trash2, AlertCircle, Check, FolderOpen, Search, X, Users, Link, Eye, LogOut, UserMinus } from 'lucide-react'
+import { Save, Cloud, Trash2, AlertCircle, Check, FolderOpen, Search, X, Users, Link, Eye, LogOut, UserMinus, Pencil } from 'lucide-react'
 import { DownloadMenu } from '@/components/DownloadMenu'
 import { useViewMode } from '@/contexts/ViewContext'
 import { DatePicker } from '@/components/DatePicker'
@@ -14,6 +14,7 @@ interface Settings {
   assetsTotal: number; liabilitiesTotal: number; netWorthConfigured: boolean
   driveFolder: string | null; driveEnabled: boolean; driveLastSync: string | null
   salaryCarryover: boolean
+  currency: string
   dashboardWidgets: string // JSON array of account names
   customAccounts: string  // JSON array of { name, type }
 }
@@ -36,7 +37,12 @@ export default function SettingsPage() {
   const [saving, setSaving]           = useState(false)
   const [saved, setSaved]             = useState(false)
   const [loading, setLoading]         = useState(true)
-  const [clearConfirm, setClearConfirm] = useState(false)
+  // Clear data OTP flow
+  type ClearStep = 'idle' | 'sending' | 'otp' | 'verifying'
+  const [clearStep, setClearStep]     = useState<ClearStep>('idle')
+  const [clearMasked, setClearMasked] = useState('')
+  const [clearOtp, setClearOtp]       = useState('')
+  const [clearErr, setClearErr]       = useState('')
   const [clearing, setClearing]       = useState(false)
 
   const load = useCallback(async () => {
@@ -66,6 +72,39 @@ export default function SettingsPage() {
 
   async function saveNetWorth(assets: number, liabilities: number) {
     await save({ assetsTotal: assets, liabilitiesTotal: liabilities, netWorthConfigured: true })
+  }
+
+  async function requestClearOtp() {
+    setClearErr(''); setClearStep('sending')
+    try {
+      const res = await fetch('/api/transactions/clear', { method: 'POST' })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error ?? 'Failed to send OTP')
+      setClearMasked(d.maskedEmail ?? '')
+      setClearOtp(d.devOtp ?? '') // pre-fill in dev
+      setClearStep('otp')
+    } catch (e: unknown) {
+      setClearErr(e instanceof Error ? e.message : 'Failed')
+      setClearStep('idle')
+    }
+  }
+
+  async function confirmClearWithOtp() {
+    if (!clearOtp.trim()) { setClearErr('Enter the OTP from your email'); return }
+    setClearErr(''); setClearStep('verifying'); setClearing(true)
+    try {
+      const res = await fetch('/api/transactions/clear', {
+        method: 'DELETE', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ otp: clearOtp.trim() }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error ?? 'Failed')
+      setClearStep('idle'); setClearOtp(''); setClearMasked(''); setClearErr('')
+      window.dispatchEvent(new Event('paisapilot:refresh'))
+    } catch (e: unknown) {
+      setClearErr(e instanceof Error ? e.message : 'Incorrect OTP')
+      setClearStep('otp')
+    } finally { setClearing(false) }
   }
 
   if (loading || !settings) return (
@@ -110,11 +149,31 @@ export default function SettingsPage() {
         <NetWorthForm settings={settings} onSave={saveNetWorth} saving={saving} />
       </Section>
 
+      <Section title="Accounts" desc="Toggle which account cards appear on your dashboard, or remove unused custom accounts.">
+        <DashboardWidgetsSection settings={settings} onSave={save} />
+      </Section>
+
       {/* Income & reports */}
       <Section title="Income & notifications">
         <div className="space-y-4">
           <div>
-            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Expected monthly income (₹)</label>
+            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Currency</label>
+            <select className="form-select" style={{ maxWidth: 240 }}
+              defaultValue={settings.currency || 'INR'}
+              onChange={e => save({ currency: e.target.value })}>
+              <option value="INR">₹ INR — Indian Rupee</option>
+              <option value="USD">$ USD — US Dollar</option>
+              <option value="EUR">€ EUR — Euro</option>
+              <option value="GBP">£ GBP — British Pound</option>
+              <option value="AED">د.إ AED — UAE Dirham</option>
+              <option value="SGD">S$ SGD — Singapore Dollar</option>
+              <option value="CAD">C$ CAD — Canadian Dollar</option>
+              <option value="AUD">A$ AUD — Australian Dollar</option>
+            </select>
+            <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 5 }}>Used for display formatting across the app.</p>
+          </div>
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 5 }}>Expected monthly income</label>
             <input type="number" className="form-input" style={{ maxWidth: 240 }}
               defaultValue={settings.expectedSalary}
               onBlur={e => save({ expectedSalary: parseFloat(e.target.value) || 0 })} />
@@ -169,7 +228,9 @@ export default function SettingsPage() {
 
       {/* Google Drive */}
       <Section id="drive" title="Google Drive sync" desc="Connect a Drive folder. PaisaPilot will pull new CSVs automatically every day at 8 AM.">
-        <DriveSection settings={settings} onSave={save} saving={saving} />
+        <Suspense fallback={null}>
+          <DriveSection settings={settings} onSave={save} saving={saving} />
+        </Suspense>
       </Section>
 
       {/* Family & Sharing */}
@@ -185,32 +246,67 @@ export default function SettingsPage() {
       {/* Danger zone */}
       <Section title="Danger zone">
         <div className="space-y-4">
-          <div className="flex items-center justify-between gap-4 p-4 rounded-xl" style={{ background: 'var(--red-bg)', border: '1px solid #fecaca' }}>
-            <div>
-              <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--red)' }}>Clear all transactions</p>
-              <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>This permanently deletes every transaction in your account. Cannot be undone.</p>
-            </div>
-            {clearConfirm ? (
-              <div className="flex gap-2 flex-shrink-0">
-                <button className="btn-ghost" style={{ fontSize: 12, color: 'var(--red)' }}
-                  disabled={clearing}
-                  onClick={async () => {
-                    setClearing(true)
-                    try {
-                      await fetch('/api/transactions/clear', { method: 'DELETE' })
-                    } catch {}
-                    setClearing(false); setClearConfirm(false)
-                    window.dispatchEvent(new Event('paisapilot:refresh'))
-                  }}>
-                  {clearing ? 'Deleting…' : 'Yes, delete all'}
-                </button>
-                <button className="btn-secondary" style={{ fontSize: 12 }} onClick={() => setClearConfirm(false)}>Cancel</button>
+          <div className="p-4 rounded-xl" style={{ background: 'var(--red-bg)', border: '1px solid #fecaca' }}>
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--red)' }}>Clear all transactions</p>
+                <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 2 }}>Permanently deletes every transaction. Requires email OTP confirmation.</p>
               </div>
-            ) : (
-              <button className="btn-ghost" style={{ fontSize: 13, color: 'var(--red)', padding: '8px 14px', flexShrink: 0 }}
-                onClick={() => setClearConfirm(true)}>
-                <Trash2 size={14} /> Clear data
-              </button>
+              {clearStep === 'idle' && (
+                <button className="btn-ghost" style={{ fontSize: 13, color: 'var(--red)', padding: '8px 14px', flexShrink: 0 }}
+                  onClick={requestClearOtp}>
+                  <Trash2 size={14} /> Clear data
+                </button>
+              )}
+              {clearStep === 'sending' && (
+                <span style={{ fontSize: 13, color: 'var(--text-3)', flexShrink: 0 }}>Sending OTP…</span>
+              )}
+              {clearStep === 'verifying' && (
+                <span style={{ fontSize: 13, color: 'var(--red)', flexShrink: 0 }}>Deleting…</span>
+              )}
+            </div>
+
+            {/* OTP entry panel */}
+            {clearStep === 'otp' && (
+              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid #fecaca' }}>
+                <p style={{ fontSize: 13, color: 'var(--text-2)', marginBottom: 12 }}>
+                  A 6-digit OTP was sent to <strong>{clearMasked}</strong>. Enter it below to confirm deletion.
+                </p>
+                <div className="flex items-center gap-3 flex-wrap">
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={6}
+                    className="form-input"
+                    style={{ width: 140, fontSize: 18, fontWeight: 700, letterSpacing: '0.15em', textAlign: 'center' }}
+                    placeholder="000000"
+                    value={clearOtp}
+                    onChange={e => { setClearOtp(e.target.value.replace(/\D/g, '')); setClearErr('') }}
+                    onKeyDown={e => e.key === 'Enter' && confirmClearWithOtp()}
+                    autoFocus
+                  />
+                  <button className="btn-ghost" style={{ fontSize: 13, color: 'var(--red)', padding: '8px 16px', border: '1px solid #fecaca' }}
+                    onClick={confirmClearWithOtp} disabled={clearing || clearOtp.length < 6}>
+                    {clearing ? 'Deleting…' : 'Confirm delete'}
+                  </button>
+                  <button className="btn-secondary" style={{ fontSize: 12 }}
+                    onClick={() => { setClearStep('idle'); setClearOtp(''); setClearErr('') }}>
+                    Cancel
+                  </button>
+                </div>
+                <div className="flex items-center gap-3" style={{ marginTop: 8 }}>
+                  {clearErr && <p style={{ fontSize: 12, color: 'var(--red)' }}>{clearErr}</p>}
+                  {!clearErr && (
+                    <button className="btn-ghost" style={{ fontSize: 12, color: 'var(--text-3)', padding: '4px 0' }}
+                      onClick={requestClearOtp}>
+                      Resend OTP
+                    </button>
+                  )}
+                </div>
+              </div>
+            )}
+            {clearStep === 'idle' && clearErr && (
+              <p style={{ fontSize: 12, color: 'var(--red)', marginTop: 8 }}>{clearErr}</p>
             )}
           </div>
         </div>
@@ -952,22 +1048,28 @@ function StatementExport() {
 }
 
 /* ── Dashboard Widgets Section ───────────────────────────────────────────── */
-const BUILTIN_ACCOUNTS = [
-  { name: 'Savings Account', type: 'savings'     as const },
-  { name: 'Salary Account',  type: 'savings'     as const },
-  { name: 'Cash',            type: 'checking'    as const },
-  { name: 'Credit Card',     type: 'credit_card' as const },
-  { name: 'Debit Card',      type: 'credit_card' as const },
-]
-
-const TYPE_ICONS: Record<string, string> = { credit_card: '💳', savings: '🏦', checking: '🏧' }
+const TYPE_ICONS: Record<string, string> = {
+  credit_card: '💳', debit_card: '🏧', savings: '🏦',
+  salary: '💰', cash: '💵', investment: '📈', checking: '🏦',
+}
+const TYPE_BADGE: Record<string, { label: string; color: string; bg: string }> = {
+  credit_card: { label: 'Card',       color: '#ea580c', bg: '#fff7ed' },
+  debit_card:  { label: 'Debit',      color: '#0369a1', bg: '#e0f2fe' },
+  savings:     { label: 'Savings',    color: '#2563eb', bg: '#eff6ff' },
+  salary:      { label: 'Salary',     color: '#16a34a', bg: '#f0fdf4' },
+  cash:        { label: 'Cash',       color: '#ca8a04', bg: '#fefce8' },
+  investment:  { label: 'Investment', color: '#7c3aed', bg: '#f5f3ff' },
+  checking:    { label: 'Checking',   color: '#7c3aed', bg: 'var(--violet-bg)' },
+}
 const TYPE_DESC:  Record<string, string> = {
   credit_card: 'Shows total spend from this card',
+  debit_card:  'Shows debit card spend and payments',
   savings:     'Shows deposits and withdrawals',
+  salary:      'Shows salary credits and debits',
+  cash:        'Shows cash transactions',
+  investment:  'Shows investment activity',
   checking:    'Shows debits and credits',
 }
-
-type AccountEntry = { name: string; type: 'credit_card' | 'savings' | 'checking' }
 
 function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   return (
@@ -982,89 +1084,195 @@ function Toggle({ on, onClick }: { on: boolean; onClick: () => void }) {
   )
 }
 
-function DashboardWidgetsSection({ settings, onSave }: { settings: Settings; onSave: (u: Partial<Settings>) => void }) {
-  const enabled: string[] = (() => {
-    try { return JSON.parse(settings.dashboardWidgets ?? '[]') } catch { return [] }
-  })()
-  const custom: AccountEntry[] = (() => {
-    try { return JSON.parse(settings.customAccounts ?? '[]') } catch { return [] }
-  })()
+type FinAccount = { id: string; name: string; type: string; showOnDash: boolean; isDefault: boolean }
 
+function DashboardWidgetsSection({ settings: _s, onSave: _o }: { settings: Settings; onSave: (u: Partial<Settings>) => void }) {
+  const [accounts, setAccounts] = useState<FinAccount[]>([])
+  const [loading, setLoading] = useState(true)
   const [adding, setAdding] = useState(false)
   const [newName, setNewName] = useState('')
-  const [newType, setNewType] = useState<AccountEntry['type']>('checking')
+  const [newType, setNewType] = useState('savings')
+  const [renamingId, setRenamingId] = useState<string | null>(null)
+  const [renameValue, setRenameValue] = useState('')
+  const [renameType, setRenameType] = useState('')
+  const [renaming, setRenaming] = useState(false)
+  const [deleteError, setDeleteError] = useState<Record<string, string>>({})
+  const [confirmDelete, setConfirmDelete] = useState<string | null>(null)
+  const [hoveredId, setHoveredId] = useState<string | null>(null)
+  const [saving, setSaving] = useState<string | null>(null)
 
-  const allAccounts: AccountEntry[] = [
-    ...BUILTIN_ACCOUNTS,
-    ...custom,
-  ]
+  const load = useCallback(async () => {
+    setLoading(true)
+    try {
+      const res = await fetch('/api/fin-accounts')
+      const d = await res.json()
+      setAccounts(d.accounts ?? [])
+    } finally { setLoading(false) }
+  }, [])
 
-  function toggle(name: string) {
-    const next = enabled.includes(name) ? enabled.filter(a => a !== name) : [...enabled, name]
-    onSave({ dashboardWidgets: next as unknown as string })
+  useEffect(() => { load() }, [load])
+
+  async function toggle(id: string, current: boolean) {
+    setSaving(id)
+    await fetch('/api/fin-accounts', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ id, showOnDash: !current }),
+    })
+    setSaving(null)
+    setAccounts(prev => prev.map(a => a.id === id ? { ...a, showOnDash: !current } : a))
+    window.dispatchEvent(new Event('paisapilot:refresh'))
   }
 
-  function addAccount() {
+  async function addAccount() {
     const n = newName.trim()
-    if (!n || allAccounts.find(a => a.name.toLowerCase() === n.toLowerCase())) return
-    const next: AccountEntry[] = [...custom, { name: n, type: newType }]
-    const nextEnabled = [...enabled, n]
-    onSave({ customAccounts: next as unknown as string, dashboardWidgets: nextEnabled as unknown as string })
-    setNewName(''); setAdding(false)
+    if (!n) return
+    const res = await fetch('/api/fin-accounts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: n, type: newType }),
+    })
+    if (res.ok) { await load(); setNewName(''); setAdding(false) }
+    else {
+      const d = await res.json().catch(() => ({}))
+      setDeleteError(e => ({ ...e, new: d.error ?? 'Failed to add' }))
+    }
   }
 
-  function removeCustom(name: string) {
-    const next = custom.filter(a => a.name !== name)
-    const nextEnabled = enabled.filter(a => a !== name)
-    onSave({ customAccounts: next as unknown as string, dashboardWidgets: nextEnabled as unknown as string })
+  async function requestDelete(id: string) {
+    setDeleteError(e => ({ ...e, [id]: '' }))
+    const res = await fetch(`/api/fin-accounts?id=${id}`, { method: 'DELETE' })
+    if (res.ok) { setConfirmDelete(null); await load(); window.dispatchEvent(new Event('paisapilot:refresh')); return }
+    const d = await res.json().catch(() => ({}))
+    if (res.status === 409) { setDeleteError(e => ({ ...e, [id]: d.error ?? 'Cannot delete' })); return }
+    setConfirmDelete(id)
   }
+
+  async function confirmDoDelete(id: string) {
+    const res = await fetch(`/api/fin-accounts?id=${id}`, { method: 'DELETE' })
+    if (res.ok) { setConfirmDelete(null); await load(); window.dispatchEvent(new Event('paisapilot:refresh')) }
+    else {
+      const d = await res.json().catch(() => ({}))
+      setDeleteError(e => ({ ...e, [id]: d.error ?? 'Delete failed' }))
+      setConfirmDelete(null)
+    }
+  }
+
+  async function saveRename(id: string, oldName: string, oldType: string) {
+    const trimmed = renameValue.trim()
+    const typeChanged = renameType && renameType !== oldType
+    if (!trimmed && !typeChanged) { setRenamingId(null); return }
+    if (trimmed === oldName && !typeChanged) { setRenamingId(null); return }
+    setRenaming(true)
+    const body: Record<string, string> = { id }
+    if (trimmed && trimmed !== oldName) body.name = trimmed
+    if (typeChanged) body.type = renameType
+    const res = await fetch('/api/fin-accounts', {
+      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    setRenaming(false)
+    setRenamingId(null)
+    if (res.ok) { await load(); window.dispatchEvent(new Event('paisapilot:refresh')) }
+    else {
+      const d = await res.json().catch(() => ({}))
+      setDeleteError(e => ({ ...e, [id]: d.error ?? 'Update failed' }))
+    }
+  }
+
+  if (loading) return <div className="skeleton" style={{ height: 80, borderRadius: 12 }} />
 
   return (
     <div className="space-y-3">
       <p style={{ fontSize: 13, color: 'var(--text-3)' }}>
-        Toggle which account cards appear on your dashboard. Add custom accounts for credit cards, savings accounts, or any account you track.
+        Toggle dashboard cards. Rename without losing any transaction history — all data stays linked by ID.
       </p>
 
-      {allAccounts.map(acct => {
-        const on = enabled.includes(acct.name)
-        const isCustom = !!custom.find(c => c.name === acct.name)
+      <div style={{ maxHeight: 380, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 10, paddingRight: 2 }}>
+      {accounts.map(acct => {
+        const isRenaming = renamingId === acct.id
+        const errMsg = deleteError[acct.id]
         return (
-          <div key={acct.name}
-            className="flex items-center justify-between p-3 rounded-xl"
-            style={{ border: '1px solid var(--border)', background: on ? 'var(--violet-bg)' : 'var(--surface)', cursor: 'pointer', transition: 'background 0.15s' }}
-            onClick={() => toggle(acct.name)}
+          <div key={acct.id}
+            className="rounded-xl"
+            style={{ border: '1px solid var(--border)', background: acct.showOnDash ? 'var(--violet-bg)' : 'var(--surface)', transition: 'background 0.15s' }}
+            onMouseEnter={() => setHoveredId(acct.id)}
+            onMouseLeave={() => setHoveredId(h => h === acct.id ? null : h)}
           >
-            <div className="flex items-center gap-3" style={{ minWidth: 0 }}>
-              <span style={{ fontSize: 20, flexShrink: 0 }}>{TYPE_ICONS[acct.type] ?? '🏧'}</span>
-              <div style={{ minWidth: 0 }}>
-                <div className="flex items-center gap-2">
-                  <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }}>{acct.name}</p>
-                  <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
-                    color: acct.type === 'credit_card' ? '#ea580c' : acct.type === 'savings' ? '#2563eb' : '#7c3aed',
-                    background: acct.type === 'credit_card' ? '#fff7ed' : acct.type === 'savings' ? '#eff6ff' : 'var(--violet-bg)',
-                    padding: '1px 6px', borderRadius: 6 }}>
-                    {acct.type === 'credit_card' ? 'Card' : acct.type === 'savings' ? 'Savings' : 'Checking'}
-                  </span>
+            {isRenaming ? (
+              <div className="p-3" onClick={e => e.stopPropagation()}>
+                <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
+                  <input autoFocus className="form-input"
+                    style={{ fontSize: 13, padding: '4px 8px', flex: 1, minWidth: 0 }}
+                    value={renameValue}
+                    onChange={e => setRenameValue(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') saveRename(acct.id, acct.name, acct.type); if (e.key === 'Escape') setRenamingId(null) }}
+                  />
+                  <select className="form-select" value={renameType} onChange={e => setRenameType(e.target.value)}
+                    style={{ fontSize: 12, height: 32, width: 140, flexShrink: 0 }}>
+                    <option value="savings">🏦 Savings</option>
+                    <option value="salary">💰 Salary</option>
+                    <option value="cash">💵 Cash</option>
+                    <option value="credit_card">💳 Credit Card</option>
+                    <option value="debit_card">🏧 Debit Card</option>
+                    <option value="investment">📈 Investment</option>
+                  </select>
                 </div>
-                <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{TYPE_DESC[acct.type]}</p>
+                <div className="flex gap-2">
+                  <button className="btn-primary" style={{ fontSize: 12, padding: '4px 10px' }} onClick={() => saveRename(acct.id, acct.name, acct.type)} disabled={renaming}>
+                    {renaming ? '…' : 'Save'}
+                  </button>
+                  <button className="btn-ghost" style={{ fontSize: 12, padding: '4px 8px' }} onClick={() => setRenamingId(null)}>Cancel</button>
+                </div>
+              </div>
+            ) : (
+            <div className="flex items-center justify-between p-3" style={{ cursor: 'pointer' }} onClick={() => toggle(acct.id, acct.showOnDash)}>
+              <div className="flex items-center gap-3" style={{ minWidth: 0, flex: 1 }}>
+                <span style={{ fontSize: 20, flexShrink: 0 }}>{TYPE_ICONS[acct.type] ?? '🏧'}</span>
+                <div style={{ minWidth: 0, flex: 1 }}>
+                  <div className="flex items-center gap-2">
+                    <p style={{ fontSize: 14, fontWeight: 600, color: 'var(--text-1)' }}>{acct.name}</p>
+                    <span style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.06em',
+                      color: (TYPE_BADGE[acct.type] ?? TYPE_BADGE.checking).color,
+                      background: (TYPE_BADGE[acct.type] ?? TYPE_BADGE.checking).bg,
+                      padding: '1px 6px', borderRadius: 6 }}>
+                      {(TYPE_BADGE[acct.type] ?? TYPE_BADGE.checking).label}
+                    </span>
+                  </div>
+                  <p style={{ fontSize: 12, color: 'var(--text-3)', marginTop: 1 }}>{TYPE_DESC[acct.type] ?? ''}</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2" onClick={e => e.stopPropagation()}>
+                <button onClick={() => { setRenamingId(acct.id); setRenameValue(acct.name); setRenameType(acct.type) }}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex', alignItems: 'center', padding: '3px', borderRadius: 4, opacity: hoveredId === acct.id ? 1 : 0, transition: 'opacity 0.15s' }}
+                  title="Edit"><Pencil size={13} /></button>
+                <button onClick={() => requestDelete(acct.id)}
+                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', display: 'flex', alignItems: 'center', padding: '3px', borderRadius: 4, opacity: hoveredId === acct.id ? 1 : 0, transition: 'opacity 0.15s' }}
+                  title="Delete"><X size={13} /></button>
+                <Toggle on={acct.showOnDash} onClick={() => toggle(acct.id, acct.showOnDash)} />
               </div>
             </div>
-            <div className="flex items-center gap-2">
-              {isCustom && (
-                <button onClick={e => { e.stopPropagation(); removeCustom(acct.name) }}
-                  style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 16, lineHeight: 1, padding: '2px 4px' }}
-                  title="Remove">×</button>
-              )}
-              <Toggle on={on} onClick={() => toggle(acct.name)} />
-            </div>
+            )}
+            {errMsg && (
+              <p style={{ fontSize: 12, color: '#ef4444', padding: '0 12px 10px', margin: 0 }}>{errMsg}</p>
+            )}
+            {confirmDelete === acct.id && (
+              <div className="flex items-center gap-3" style={{ padding: '8px 12px 10px', borderTop: '1px solid var(--border)' }} onClick={e => e.stopPropagation()}>
+                <p style={{ fontSize: 12, color: 'var(--text-2)', flex: 1, margin: 0 }}>Delete <strong>{acct.name}</strong>? This cannot be undone.</p>
+                <button onClick={() => confirmDoDelete(acct.id)}
+                  style={{ fontSize: 12, padding: '4px 12px', borderRadius: 6, border: 'none', background: '#ef4444', color: '#fff', cursor: 'pointer', fontWeight: 600 }}>Delete</button>
+                <button onClick={() => setConfirmDelete(null)}
+                  style={{ fontSize: 12, padding: '4px 10px', borderRadius: 6, border: '1px solid var(--border)', background: 'none', color: 'var(--text-2)', cursor: 'pointer' }}>Cancel</button>
+              </div>
+            )}
           </div>
         )
       })}
+      </div>
 
       {/* Add custom account */}
       {adding ? (
         <div className="p-4 rounded-xl" style={{ border: '1px dashed var(--violet)', background: 'var(--violet-bg)' }}>
           <p style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-1)', marginBottom: 12 }}>Add account</p>
+          {deleteError.new && <p style={{ fontSize: 12, color: '#ef4444', marginBottom: 8 }}>{deleteError.new}</p>}
           <div className="flex gap-2 mb-3">
             <input
               autoFocus
@@ -1075,15 +1283,18 @@ function DashboardWidgetsSection({ settings, onSave }: { settings: Settings; onS
               onKeyDown={e => e.key === 'Enter' && addAccount()}
               style={{ flex: 1 }}
             />
-            <select className="form-select" value={newType} onChange={e => setNewType(e.target.value as AccountEntry['type'])} style={{ width: 140 }}>
-              <option value="credit_card">💳 Credit Card</option>
+            <select className="form-select" value={newType} onChange={e => setNewType(e.target.value)} style={{ width: 150 }}>
               <option value="savings">🏦 Savings</option>
-              <option value="checking">🏧 Checking</option>
+              <option value="salary">💰 Salary</option>
+              <option value="cash">💵 Cash</option>
+              <option value="credit_card">💳 Credit Card</option>
+              <option value="debit_card">🏧 Debit Card</option>
+              <option value="investment">📈 Investment</option>
             </select>
           </div>
           <div className="flex gap-2">
             <button className="btn-primary" style={{ fontSize: 13, padding: '8px 16px' }} onClick={addAccount} disabled={!newName.trim()}>Add</button>
-            <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => { setAdding(false); setNewName('') }}>Cancel</button>
+            <button className="btn-ghost" style={{ fontSize: 13 }} onClick={() => { setAdding(false); setNewName(''); setDeleteError({}) }}>Cancel</button>
           </div>
         </div>
       ) : (
