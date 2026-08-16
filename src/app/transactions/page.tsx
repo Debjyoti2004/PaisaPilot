@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, Suspense } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { Search, ChevronDown, X, Plus, Trash2, Check, CalendarDays, AlertCircle, Pencil } from 'lucide-react'
 import { NEEDS_CATS, WANTS_CATS, INV_CATS, ALL_CATS, INCOME_CATS, GROUP_DEFAULT_CAT, catsForGroup } from '@/config/categories'
 import { useViewMode } from '@/contexts/ViewContext'
@@ -25,7 +26,17 @@ const PERIODS: { value: Period; label: string }[] = [
 
 const CATEGORIES = [...ALL_CATS, ...INCOME_CATS, 'Needs review']
 
-const ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
+const BUILTIN_ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
+
+type CustomCats = { needs: string[]; wants: string[]; investments: string[] }
+const EMPTY_CUSTOM_CATS: CustomCats = { needs: [], wants: [], investments: [] }
+async function fetchCustomCats(): Promise<CustomCats> {
+  try {
+    const res = await fetch('/api/user-categories')
+    if (res.ok) return await res.json()
+  } catch {}
+  return EMPTY_CUSTOM_CATS
+}
 
 const GROUP_TABS = [
   { value: '',            label: 'All',         color: 'var(--text-2)',  bg: 'var(--bg)' },
@@ -123,9 +134,13 @@ function PeriodSelector({
   )
 }
 
-function InlineCategory({ txId, current, wealthGroup, txType, onSave, readOnly }: { txId: string; current: string; wealthGroup?: string | null; txType?: string; onSave: (cat: string) => void; readOnly?: boolean }) {
+function InlineCategory({ txId, current, wealthGroup, txType, onSave, readOnly, customCats }: { txId: string; current: string; wealthGroup?: string | null; txType?: string; onSave: (cat: string) => void; readOnly?: boolean; customCats?: CustomCats }) {
   const [saving, setSaving] = useState(false)
-  const cats = txType === 'income' ? INCOME_CATS : catsForGroup(wealthGroup)
+  const builtinCats = txType === 'income' ? INCOME_CATS : catsForGroup(wealthGroup)
+  const groupKey = wealthGroup as keyof CustomCats | null
+  const extraCats = groupKey && customCats?.[groupKey] ? customCats[groupKey] : []
+  const cats = [...builtinCats, ...extraCats]
+  const allCats = cats.includes(current) ? cats : [...cats, current]
   async function handleChange(e: React.ChangeEvent<HTMLSelectElement>) {
     const val = e.target.value; setSaving(true)
     try {
@@ -136,8 +151,8 @@ function InlineCategory({ txId, current, wealthGroup, txType, onSave, readOnly }
   }
   if (readOnly) return <span style={{ fontSize: 13, color: 'var(--text-2)' }}>{current}</span>
   return (
-    <select value={cats.includes(current) ? current : cats[0]} onChange={handleChange} disabled={saving} className="inline-select" style={{ opacity: saving ? 0.5 : 1 }}>
-      {cats.map(c => <option key={c}>{c}</option>)}
+    <select value={current} onChange={handleChange} disabled={saving} className="inline-select" style={{ opacity: saving ? 0.5 : 1 }}>
+      {allCats.map(c => <option key={c}>{c}</option>)}
     </select>
   )
 }
@@ -341,9 +356,19 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
   const [merchantOpen, setMerchantOpen] = useState(false)
   const [merchantHighlight, setMerchantHighlight] = useState(-1)
   const merchantTimerRef = useRef<ReturnType<typeof setTimeout>>()
+  const [customCats, setCustomCats] = useState<CustomCats>(EMPTY_CUSTOM_CATS)
+  useEffect(() => { fetchCustomCats().then(setCustomCats) }, [])
 
+  const [accounts, setAccounts] = useState<string[]>(BUILTIN_ACCOUNTS)
   useEffect(() => {
     fetch('/api/merchants').then(r => r.json()).then(d => setOwnMerchants(d.merchants ?? []))
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      try {
+        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
+        const names = custom.map(c => c.name)
+        setAccounts([...BUILTIN_ACCOUNTS, ...names.filter(n => !BUILTIN_ACCOUNTS.includes(n))])
+      } catch {}
+    })
   }, [])
   const [fields, setFields] = useState<EditState>({
     merchant: tx.merchant, amount: String(tx.amount), date: tx.date,
@@ -470,7 +495,7 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
         <div>
           <label style={{ fontSize: 11, fontWeight: 500, color: 'var(--text-3)', display: 'block', marginBottom: 4 }}>Account</label>
           <select className="form-select" style={{ height: 36, fontSize: 13 }} value={fields.account} onChange={e => set('account', e.target.value)}>
-            {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+            {accounts.map(a => <option key={a}>{a}</option>)}
           </select>
         </div>
         {!isIncome && (
@@ -516,11 +541,20 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
               Subcategory <span style={{ color: 'var(--text-3)', fontWeight: 400 }}>({fields.wealthGroup})</span>
             </label>
             <div className="relative" style={{ maxWidth: 220 }}>
-              <select className="form-select" style={{ height: 36, fontSize: 13 }}
-                value={catsForGroup(fields.wealthGroup).includes(fields.category) ? fields.category : catsForGroup(fields.wealthGroup)[0]}
-                onChange={e => setFields(f => ({ ...f, category: e.target.value }))}>
-                {catsForGroup(fields.wealthGroup).map(c => <option key={c}>{c}</option>)}
-              </select>
+              {(() => {
+                const groupKey = fields.wealthGroup as keyof CustomCats
+                const builtins = catsForGroup(fields.wealthGroup)
+                const customs = customCats[groupKey] ?? []
+                const allGroupCats = [...builtins, ...customs]
+                const opts = allGroupCats.includes(fields.category) ? allGroupCats : [...allGroupCats, fields.category]
+                return (
+                  <select className="form-select" style={{ height: 36, fontSize: 13 }}
+                    value={fields.category}
+                    onChange={e => setFields(f => ({ ...f, category: e.target.value }))}>
+                    {opts.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                )
+              })()}
               <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
             </div>
           </div>
@@ -535,8 +569,9 @@ function InlineEditPanel({ tx, onSave, onCancel }: { tx: Tx; onSave: (fields: Ed
 }
 
 // ── Transactions Page ──────────────────────────────────────────
-export default function TransactionsPage() {
+function TransactionsPage() {
   const { isViewing, viewingUser, accessRevoked } = useViewMode()
+  const searchParams = useSearchParams()
   const [txns, setTxns] = useState<Tx[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(true)
@@ -544,16 +579,29 @@ export default function TransactionsPage() {
   const [period, setPeriod] = useState<Period | null>(null)
   const [customRange, setCustomRange] = useState({ start: '', end: '' })
   const [search, setSearch] = useState('')
-  const [accountFilter, setAccountFilter] = useState('')
-  const [categoryFilter, setCategoryFilter] = useState('')
-  const [typeFilter, setTypeFilter] = useState('')
+  const [accountFilter, setAccountFilter] = useState(() => searchParams.get('account') ?? '')
+  const [categoryFilter, setCategoryFilter] = useState(() => searchParams.get('category') ?? '')
+  const [typeFilter, setTypeFilter] = useState(() => searchParams.get('type') ?? '')
   const [groupTab, setGroupTab] = useState('')
   const [page, setPage] = useState(1)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [tagModal, setTagModal] = useState<{ txId: string; tags: string[] } | null>(null)
+  const [accounts, setAccounts] = useState<string[]>(BUILTIN_ACCOUNTS)
+  const [customCats, setCustomCats] = useState<CustomCats>(EMPTY_CUSTOM_CATS)
   const searchDebounce = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  useEffect(() => {
+    fetchCustomCats().then(setCustomCats)
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      try {
+        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
+        const names = custom.map((c: { name: string }) => c.name)
+        setAccounts([...BUILTIN_ACCOUNTS, ...names.filter((n: string) => !BUILTIN_ACCOUNTS.includes(n))])
+      } catch {}
+    })
+  }, [])
 
   const load = useCallback(async (p: Period, s: string, acc: string, cat: string, type: string, gt: string, pg: number, viewAs?: string, ownerName?: string, cr?: { start: string; end: string }) => {
     setLoading(true); setError('')
@@ -640,7 +688,7 @@ export default function TransactionsPage() {
         {GROUP_TABS.map(tab => {
           const active = groupTab === tab.value
           return (
-            <button key={tab.value} onClick={() => { setGroupTab(tab.value); setPage(1) }} style={{
+            <button key={tab.value} onClick={() => { setGroupTab(tab.value); setCategoryFilter(''); setPage(1) }} style={{
               padding: '7px 16px', borderRadius: 20, fontSize: 13, fontWeight: active ? 700 : 500,
               border: `1.5px solid ${active ? tab.color : 'var(--border)'}`,
               background: active ? tab.bg : '#ffffff',
@@ -665,7 +713,7 @@ export default function TransactionsPage() {
           <div className="relative" style={{ flexShrink: 0 }}>
             <select value={accountFilter} onChange={e => { setAccountFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 140 }}>
               <option value="">All accounts</option>
-              {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+              {accounts.map(a => <option key={a}>{a}</option>)}
             </select>
             <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
           </div>
@@ -680,10 +728,24 @@ export default function TransactionsPage() {
             </div>
           )}
           <div className="relative" style={{ flexShrink: 0 }}>
-            <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
-              <option value="">All categories</option>
-              {CATEGORIES.map(c => <option key={c}>{c}</option>)}
-            </select>
+            {(() => {
+              let baseCats: string[]
+              if (groupTab === 'needs')       baseCats = [...NEEDS_CATS, ...customCats.needs]
+              else if (groupTab === 'wants')  baseCats = [...WANTS_CATS, ...customCats.wants]
+              else if (groupTab === 'investments') baseCats = [...INV_CATS, ...customCats.investments]
+              else if (groupTab === 'income') baseCats = [...INCOME_CATS]
+              else baseCats = [...CATEGORIES, ...customCats.needs, ...customCats.wants, ...customCats.investments]
+              // Also include any unique categories from loaded transactions (covers DB cats not in localStorage)
+              const txCats = txns.map(t => t.category).filter(Boolean)
+              const extraFromTxns = txCats.filter(c => !baseCats.includes(c))
+              const filterCats = [...baseCats, ...Array.from(new Set(extraFromTxns))]
+              return (
+                <select value={categoryFilter} onChange={e => { setCategoryFilter(e.target.value); setPage(1) }} className="form-select" style={{ minWidth: 150 }}>
+                  <option value="">All categories</option>
+                  {filterCats.map(c => <option key={c}>{c}</option>)}
+                </select>
+              )
+            })()}
             <ChevronDown size={14} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
           </div>
           <PeriodSelector value={period ?? 'all-time'} onChange={handlePeriodChange} customRange={customRange} onCustomRange={handleCustomRange} />
@@ -775,7 +837,7 @@ export default function TransactionsPage() {
                         </div>
                       </td>
                       <td className="hidden sm:table-cell">
-                        <InlineCategory txId={tx.id} current={tx.category} wealthGroup={tx.wealthGroup} txType={tx.type} onSave={cat => updateTx(tx.id, { category: cat })} readOnly={isViewing} />
+                        <InlineCategory txId={tx.id} current={tx.category} wealthGroup={tx.wealthGroup} txType={tx.type} onSave={cat => updateTx(tx.id, { category: cat })} readOnly={isViewing} customCats={customCats} />
                       </td>
                       <td className="hidden sm:table-cell"><span style={{ fontSize: 13, color: 'var(--text-2)' }}>{tx.account}</span></td>
                       <td><TagPills txId={tx.id} tags={tx.tags} onUpdate={tags => updateTx(tx.id, { tags })} readOnly={isViewing} onOpenModal={() => setTagModal({ txId: tx.id, tags: tx.tags })} /></td>
@@ -902,5 +964,13 @@ export default function TransactionsPage() {
         )
       })()}
     </div>
+  )
+}
+
+export default function TransactionsPageWrapper() {
+  return (
+    <Suspense>
+      <TransactionsPage />
+    </Suspense>
   )
 }

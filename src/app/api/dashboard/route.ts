@@ -131,6 +131,29 @@ export async function GET(request: NextRequest) {
 
     const needsReview = txns.filter(t => t.category?.name === 'Needs review').length
 
+    // Account widgets — per-account spend/income summary for the current period
+    const enabledWidgets: string[] = (() => {
+      try { return JSON.parse(settings?.dashboardWidgets ?? '[]') } catch { return [] }
+    })()
+    type CustomAccount = { name: string; type: 'credit_card' | 'savings' | 'checking' }
+    const customAccountList: CustomAccount[] = (() => {
+      try { return JSON.parse(settings?.customAccounts ?? '[]') } catch { return [] }
+    })()
+    const getAccountType = (name: string): 'credit_card' | 'savings' | 'checking' => {
+      const custom = customAccountList.find(a => a.name === name)
+      if (custom) return custom.type
+      const n = name.toLowerCase()
+      if (n.includes('credit') || n.includes('card')) return 'credit_card'
+      if (n.includes('saving')) return 'savings'
+      return 'checking'
+    }
+    const accountWidgets = enabledWidgets.map(acctName => {
+      const acctTxns = txns.filter(t => (t.account ?? '') === acctName)
+      const spend  = acctTxns.filter(t => t.type === 'debit').reduce((s, t) => s + t.amount, 0)
+      const earned = acctTxns.filter(t => t.type === 'credit').reduce((s, t) => s + t.amount, 0)
+      return { account: acctName, spend, earned, type: getAccountType(acctName) }
+    })
+
     // Persist selected period (don't save custom since we don't persist the date range)
     await prisma.appSettings.upsert({
       where: { userId },
@@ -152,6 +175,7 @@ export async function GET(request: NextRequest) {
         amount: r.amount, nextDate: r.nextDate, cadence: r.cadence,
       })),
       needsReview,
+      accountWidgets,
       savedPeriod: settings?.selectedPeriod ?? 'all-time',
     })
   } catch (error) {

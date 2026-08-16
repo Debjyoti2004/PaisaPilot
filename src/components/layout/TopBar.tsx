@@ -29,7 +29,18 @@ export function TopBar({ title, subtitle }: TopBarProps) {
     } catch {}
   }, [])
 
-  useEffect(() => { fetchUnread() }, [fetchUnread])
+  useEffect(() => {
+    const todayKey = new Date().toISOString().slice(0, 10)
+    const lastCheck = localStorage.getItem('pp_notif_check')
+    if (lastCheck !== todayKey) {
+      fetch('/api/notifications/check', { method: 'POST' })
+        .then(() => { localStorage.setItem('pp_notif_check', todayKey) })
+        .catch(() => {})
+        .finally(() => fetchUnread())
+    } else {
+      fetchUnread()
+    }
+  }, [fetchUnread])
 
   return (
     <>
@@ -141,25 +152,35 @@ const GROUP_LABELS: Record<WealthGroup, { label: string; emoji: string; color: s
   wants:       { label: 'Wants',       emoji: '🛍️', color: '#f97316' },
   investments: { label: 'Investments', emoji: '📈', color: '#10b981' },
 }
-const ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
-const LS_KEY = 'pp_custom_cats'
+const BUILTIN_ACCOUNTS = ['Savings Account','Salary Account','Cash','Credit Card','Debit Card']
 const CUSTOM_SENTINEL = '__custom__'
 
-type CustomCats = Record<WealthGroup, string[]>
+type CustomCats = { needs: string[]; wants: string[]; investments: string[] }
 
-function loadCustomCats(): CustomCats {
+function allCustomNames(cats: CustomCats): string[] {
+  return [...cats.needs, ...cats.wants, ...cats.investments]
+}
+
+async function apiLoadCustomCats(): Promise<CustomCats> {
   try {
-    const raw = localStorage.getItem(LS_KEY)
-    if (raw) return JSON.parse(raw) as CustomCats
+    const res = await fetch('/api/user-categories')
+    if (res.ok) return await res.json()
   } catch {}
   return { needs: [], wants: [], investments: [] }
 }
-function saveCustomCat(group: WealthGroup, name: string) {
-  const stored = loadCustomCats()
-  if (!stored[group].includes(name)) {
-    stored[group] = [...stored[group], name]
-    localStorage.setItem(LS_KEY, JSON.stringify(stored))
-  }
+
+async function apiSaveCustomCat(group: string, name: string): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch('/api/user-categories', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, wealthGroup: group }),
+  })
+  const d = await res.json()
+  if (!res.ok) return { ok: false, error: d.error }
+  return { ok: true }
+}
+
+async function apiDeleteCustomCat(name: string): Promise<void> {
+  await fetch(`/api/user-categories?name=${encodeURIComponent(name)}`, { method: 'DELETE' })
 }
 
 function AddEntryModal({ onClose }: { onClose: () => void }) {
@@ -201,6 +222,8 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const [customCats, setCustomCats] = useState<CustomCats>({ needs: [], wants: [], investments: [] })
+  const [catDropOpen, setCatDropOpen] = useState(false)
+  const [accounts, setAccounts] = useState<string[]>(BUILTIN_ACCOUNTS)
 
   const tagSuggestions = tag.trim()
     ? allTags.filter(t => t.toLowerCase().includes(tag.trim().toLowerCase())).slice(0, 6)
@@ -209,9 +232,17 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
   useEffect(() => { setTagHighlight(-1) }, [tag])
 
   useEffect(() => {
-    setCustomCats(loadCustomCats())
+    apiLoadCustomCats().then(setCustomCats)
     fetch('/api/tags').then(r => r.json()).then(d => setAllTags(d.tags?.map((t: { name: string }) => t.name) ?? []))
     fetch('/api/merchants').then(r => r.json()).then(d => setOwnMerchants(d.merchants ?? []))
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      try {
+        const custom: { name: string }[] = JSON.parse(d.settings?.customAccounts ?? '[]')
+        const customNames = custom.map(c => c.name)
+        const all = [...BUILTIN_ACCOUNTS, ...customNames.filter(n => !BUILTIN_ACCOUNTS.includes(n))]
+        setAccounts(all)
+      } catch {}
+    })
     const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose() }
     window.addEventListener('keydown', handler)
     return () => window.removeEventListener('keydown', handler)
@@ -219,7 +250,7 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
 
   // Reset category when group changes
   useEffect(() => {
-    if (group) { setCategory(BASE_GROUP_CATS[group][0]); setCustomInput('') }
+    if (group) { setCategory(BASE_GROUP_CATS[group][0]); setCustomInput(''); setCatDropOpen(false) }
   }, [group])
 
   function handleTypeChange(t: EntryType) {
@@ -242,10 +273,13 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
       ? incomeCategory
       : (category === CUSTOM_SENTINEL ? customInput.trim() : category)
     if (!finalCat) { setError('Enter a custom category name.'); return }
-    // Persist custom category for this group
+    // Persist custom category for this group (block duplicates across all groups)
     if (category === CUSTOM_SENTINEL && group && finalCat) {
-      saveCustomCat(group, finalCat)
-      setCustomCats(loadCustomCats())
+      const existing = allCustomNames(customCats).find(n => n.toLowerCase() === finalCat.toLowerCase())
+      if (existing) { setError(`"${existing}" already exists as a custom category.`); return }
+      const result = await apiSaveCustomCat(group, finalCat)
+      if (!result.ok) { setError(result.error ?? 'Failed to save category'); return }
+      apiLoadCustomCats().then(setCustomCats)
     }
     setSaving(true); setError('')
     try {
@@ -399,7 +433,7 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
               <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Account</label>
               <div className="relative">
                 <select value={account} onChange={e => setAccount(e.target.value)} className="form-select">
-                  {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
+                  {accounts.map(a => <option key={a}>{a}</option>)}
                 </select>
                 <ChevronDown size={14} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
               </div>
@@ -449,27 +483,74 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
                 </div>
               </div>
 
-              {/* Step 2: Subcategory */}
+              {/* Step 2: Subcategory — custom dropdown with delete for custom items */}
               {group && (
                 <div>
                   <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Subcategory</label>
                   <div className="relative">
-                    <select value={category} onChange={e => handleCatChange(e.target.value)} className="form-select">
-                      {cats.map(c => <option key={c} value={c}>{c}</option>)}
-                      <option value={CUSTOM_SENTINEL}>✏️ New custom…</option>
-                    </select>
-                    <ChevronDown size={14} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+                    {/* Trigger */}
+                    <button type="button" onClick={() => setCatDropOpen(o => !o)}
+                      style={{
+                        width: '100%', height: 44, padding: '0 12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                        background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10,
+                        fontSize: 14, color: category === CUSTOM_SENTINEL ? 'var(--text-3)' : 'var(--text-1)', cursor: 'pointer',
+                      }}>
+                      <span>{category === CUSTOM_SENTINEL ? '✏️ New custom…' : category}</span>
+                      <ChevronDown size={14} style={{ color: 'var(--text-3)', flexShrink: 0 }} />
+                    </button>
+
+                    {/* Dropdown */}
+                    {catDropOpen && (
+                      <>
+                        <div className="fixed inset-0 z-40" onClick={() => setCatDropOpen(false)} />
+                        <div style={{
+                          position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 50,
+                          background: '#fff', border: '1px solid var(--border)', borderRadius: 10,
+                          boxShadow: 'var(--shadow-lg)', overflow: 'hidden', maxHeight: 220, overflowY: 'auto',
+                        }}>
+                          {/* Built-in cats */}
+                          {BASE_GROUP_CATS[group].map(c => (
+                            <div key={c} onClick={() => { handleCatChange(c); setCatDropOpen(false) }}
+                              style={{ padding: '9px 12px', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                                background: c === category ? 'var(--violet-bg)' : 'transparent', color: c === category ? 'var(--violet)' : 'var(--text-1)' }}>
+                              <span>{c === category ? '✓ ' : ''}{c}</span>
+                            </div>
+                          ))}
+                          {/* Custom cats with delete */}
+                          {customCats[group].map(c => (
+                            <div key={c} style={{ padding: '9px 12px', fontSize: 13, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                              background: c === category ? 'var(--violet-bg)' : 'transparent' }}
+                              onClick={() => { handleCatChange(c); setCatDropOpen(false) }}>
+                              <span style={{ color: c === category ? 'var(--violet)' : 'var(--text-1)' }}>{c === category ? '✓ ' : ''}{c}</span>
+                              <button type="button" onClick={e => {
+                                e.stopPropagation()
+                                apiDeleteCustomCat(c).then(() => apiLoadCustomCats().then(setCustomCats))
+                                if (category === c) setCategory(BASE_GROUP_CATS[group][0])
+                              }} style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-3)', fontSize: 16, lineHeight: 1, padding: '0 2px', flexShrink: 0 }}
+                                title="Delete">×</button>
+                            </div>
+                          ))}
+                          {/* New custom option */}
+                          <div onClick={() => { handleCatChange(CUSTOM_SENTINEL); setCatDropOpen(false) }}
+                            style={{ padding: '9px 12px', fontSize: 13, cursor: 'pointer', color: 'var(--violet)',
+                              borderTop: '1px solid var(--border)', background: category === CUSTOM_SENTINEL ? 'var(--violet-bg)' : 'transparent' }}>
+                            ✏️ New custom…
+                          </div>
+                        </div>
+                      </>
+                    )}
                   </div>
+
+                  {/* Custom name input */}
                   {category === CUSTOM_SENTINEL && (
-                    <input
-                      type="text"
-                      className="form-input"
-                      style={{ marginTop: 8 }}
-                      placeholder="Type category name (e.g. NT50, ELSS)"
-                      value={customInput}
-                      onChange={e => setCustomInput(e.target.value)}
-                      autoFocus
-                    />
+                    <div style={{ marginTop: 8 }}>
+                      <input type="text" className="form-input"
+                        placeholder={`Name for ${GROUP_LABELS[group].label} subcategory…`}
+                        value={customInput} onChange={e => setCustomInput(e.target.value)} autoFocus />
+                      <p style={{ fontSize: 11, color: GROUP_LABELS[group].color, marginTop: 4, fontWeight: 500 }}>
+                        Will be saved under {GROUP_LABELS[group].emoji} {GROUP_LABELS[group].label}
+                      </p>
+                    </div>
                   )}
                 </div>
               )}

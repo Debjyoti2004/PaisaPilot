@@ -4,8 +4,14 @@ import { requireUserId } from '@/lib/auth'
 
 export const dynamic = 'force-dynamic'
 
-function getPeriodFilter(period: string) {
+function getPeriodFilter(period: string, from?: string | null, to?: string | null) {
   const now = new Date()
+  if (period === 'custom' && from && to) {
+    return {
+      gte: new Date(from + 'T00:00:00'),
+      lte: new Date(to   + 'T23:59:59'),
+    }
+  }
   switch (period) {
     case 'this-month':    return { gte: new Date(now.getFullYear(), now.getMonth(), 1) }
     case 'last-month':    return { gte: new Date(now.getFullYear(), now.getMonth() - 1, 1), lte: new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59) }
@@ -33,7 +39,9 @@ export async function GET(request: NextRequest) {
     const userId = await requireUserId()
     const { searchParams } = new URL(request.url)
     const period = searchParams.get('period') ?? 'this-month'
-    const dateFilter = getPeriodFilter(period)
+    const from   = searchParams.get('from')
+    const to     = searchParams.get('to')
+    const dateFilter = getPeriodFilter(period, from, to)
 
     const now = new Date()
     const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)

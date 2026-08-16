@@ -24,7 +24,7 @@ export async function PATCH(request: NextRequest) {
     const body = await request.json()
     const { expectedSalary, savingsFloor, emailReports, reportEmail, salaryCarryover,
             assetsTotal, liabilitiesTotal, netWorthConfigured,
-            driveFolder, driveEnabled } = body
+            driveFolder, driveEnabled, dashboardWidgets, customAccounts } = body
     const updates: Record<string, unknown> = {}
     if (expectedSalary !== undefined)       updates.expectedSalary = parseFloat(expectedSalary)
     if (savingsFloor !== undefined)         updates.savingsFloor = parseFloat(savingsFloor)
@@ -36,6 +36,8 @@ export async function PATCH(request: NextRequest) {
     if (netWorthConfigured !== undefined)   updates.netWorthConfigured = netWorthConfigured
     if (driveFolder !== undefined)          updates.driveFolder = driveFolder
     if (driveEnabled !== undefined)         updates.driveEnabled = driveEnabled
+    if (dashboardWidgets !== undefined)     updates.dashboardWidgets = JSON.stringify(dashboardWidgets)
+    if (customAccounts !== undefined)       updates.customAccounts = JSON.stringify(customAccounts)
 
     const settings = await prisma.appSettings.upsert({
       where: { userId },

@@ -17,19 +17,21 @@ const GROUP_META: Record<WealthGroup, { label: string; emoji: string; color: str
   wants:       { label: 'Wants',       emoji: '🛍️', color: '#f97316' },
   investments: { label: 'Investments', emoji: '📈', color: '#10b981' },
 }
-const LS_KEY = 'pp_custom_cats'
 const CUSTOM_SENTINEL = '__custom__'
 
-function loadCustomCats(): Record<WealthGroup, string[]> {
-  try { const r = localStorage.getItem(LS_KEY); if (r) return JSON.parse(r) } catch {}
+async function apiLoadCustomCats(): Promise<Record<WealthGroup, string[]>> {
+  try {
+    const res = await fetch('/api/user-categories')
+    if (res.ok) return await res.json()
+  } catch {}
   return { needs: [], wants: [], investments: [] }
 }
-function saveCustomCat(group: WealthGroup, name: string) {
-  const stored = loadCustomCats()
-  if (!stored[group].includes(name)) {
-    stored[group] = [...stored[group], name]
-    localStorage.setItem(LS_KEY, JSON.stringify(stored))
-  }
+
+async function apiSaveCustomCat(group: WealthGroup, name: string): Promise<void> {
+  await fetch('/api/user-categories', {
+    method: 'POST', headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name, wealthGroup: group }),
+  })
 }
 
 export default function RulesPage() {
@@ -46,7 +48,7 @@ export default function RulesPage() {
   const [err, setErr]       = useState('')
   const [delId, setDelId]   = useState<string | null>(null)
 
-  useEffect(() => { setCustomCats(loadCustomCats()) }, [])
+  useEffect(() => { apiLoadCustomCats().then(setCustomCats) }, [])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -69,10 +71,9 @@ export default function RulesPage() {
     if (!group) { setErr('Choose a category group'); return }
     const thenText = then === CUSTOM_SENTINEL ? customInput.trim() : then
     if (!thenText) { setErr('Enter a custom category name'); return }
-    // Persist custom to localStorage
     if (then === CUSTOM_SENTINEL && thenText) {
-      saveCustomCat(group, thenText)
-      setCustomCats(loadCustomCats())
+      await apiSaveCustomCat(group, thenText)
+      apiLoadCustomCats().then(setCustomCats)
     }
     setSaving(true); setErr('')
     try {

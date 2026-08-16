@@ -36,6 +36,8 @@ model User {
   userTags           UserTag[]
   categoryRules      CategoryRule[]
   familyMemberships  FamilyMember[]
+  quickNotes         QuickNote[]
+  userSubcategories  UserSubcategory[]
 
   createdAt DateTime @default(now())
 }
@@ -278,6 +280,11 @@ model AppSettings {
   pinOtp          String?
   pinOtpExpiry    DateTime?
   pinPromptSeen   Boolean   @default(false)
+
+  // Dashboard widgets: JSON array of account names to show as cards
+  dashboardWidgets String  @default("[]")
+  // Custom accounts: JSON array of { name, type } added by user
+  customAccounts   String  @default("[]")
 }
 
 // Wealth Plan (Warikoo model) — per user, stored in DB
@@ -407,4 +414,27 @@ model FamilyInvite {
   accepted    Boolean   @default(false)
   expiresAt   DateTime
   createdAt   DateTime  @default(now())
+}
+
+model UserSubcategory {
+  id         String   @id @default(cuid())
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  wealthGroup String  // 'needs' | 'wants' | 'investments'
+  createdAt  DateTime @default(now())
+
+  @@unique([userId, name])
+}
+
+model QuickNote {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String   @default("")
+  content   String   @db.Text @default("")
+  color     String   @default("#ffffff")
+  pinned    Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

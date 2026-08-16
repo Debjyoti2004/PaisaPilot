@@ -206,7 +206,7 @@ export async function PATCH(request: NextRequest) {
             narration: `${existing.name} (recurring)`,
             merchant: existing.name,
             occurredAt,
-            account: existing.account ?? 'Savings Account',
+            account: body.account || existing.account || 'Savings Account',
             ...(wealthGroup ? { wealthGroup } : {}),
             ...(actualPaidDate ? { actualPaidDate } : {}),
           },
