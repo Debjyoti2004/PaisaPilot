@@ -38,6 +38,7 @@ model User {
   familyMemberships  FamilyMember[]
   quickNotes         QuickNote[]
   userSubcategories  UserSubcategory[]
+  financialAccounts  FinancialAccount[]
 
   createdAt DateTime @default(now())
 }
@@ -179,10 +180,17 @@ model Transaction {
 
   // Ledgerly-style fields (new)
   merchant       String?
-  account        String?   @default("Main Checking")
+  account        String?   @default("Main Checking") // legacy name snapshot — prefer finAccount.name
+  accountId      String?   // FK to FinancialAccount — stable ID even after rename
+  finAccount     FinancialAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull)
   tags           String    @default("[]")
   wealthGroup    String?
   actualPaidDate DateTime? // actual payment date when occurredAt is shifted to month-1st
+  isTransfer     Boolean   @default(false)
+  linkedTxId     String?
+  cardPaid       Boolean   @default(false)
+
+  @@index([accountId])
 }
 
 model SavingsBucket {
@@ -285,6 +293,13 @@ model AppSettings {
   dashboardWidgets String  @default("[]")
   // Custom accounts: JSON array of { name, type } added by user
   customAccounts   String  @default("[]")
+
+  // Onboarding
+  onboardingCompleted Boolean @default(false)
+
+  // Clear-data OTP (one-time password for destructive clear action)
+  clearOtp       String?
+  clearOtpExpiry DateTime?
 }
 
 // Wealth Plan (Warikoo model) — per user, stored in DB
@@ -437,4 +452,26 @@ model QuickNote {
   pinned    Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+}
+
+// ─── Financial Accounts (ID-stable, rename-safe) ──────────────────────────
+// This replaces the customAccounts/dashboardWidgets JSON blobs in AppSettings.
+// Transactions hold accountId (FK) — renaming only touches this table, never
+// cascades to any transaction rows.
+model FinancialAccount {
+  id         String        @id @default(cuid())
+  userId     String
+  user       User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name       String
+  type       String        @default("savings") // savings | salary | cash | credit_card | debit_card | investment
+  isDefault  Boolean       @default(false)     // seeded for every new user
+  showOnDash Boolean       @default(true)      // replaces dashboardWidgets JSON
+  sortOrder  Int           @default(0)
+  createdAt  DateTime      @default(now())
+  updatedAt  DateTime      @updatedAt
+
+  transactions Transaction[]
+
+  @@unique([userId, name])
+  @@index([userId])
 }

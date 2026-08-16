@@ -95,31 +95,49 @@ export async function GET(request: NextRequest) {
 
     if (category)  where.category = { name: category }
     if (search)    where.narration = { contains: search, mode: 'insensitive' }
-    if (typeParam === 'income')  where.type = 'credit'
-    if (typeParam === 'expense') where.type = 'debit'
+    if (typeParam === 'income')   where.type = 'credit'
+    if (typeParam === 'expense')  where.type = 'debit'
+    if (typeParam === 'transfer') where.isTransfer = true
     if (wealthGroupParam && wealthGroupParam !== 'income') where.wealthGroup = wealthGroupParam
     if (wealthGroupParam === 'income') where.type = 'credit'
+
+    // Account filter: match by accountId OR by account-name (for unmigrated rows with accountId=null)
+    const accountIdParam = searchParams.get('accountId')
+    if (accountIdParam) {
+      const fa = await prisma.financialAccount.findUnique({ where: { id: accountIdParam }, select: { name: true } })
+      if (fa) {
+        where.OR = [
+          { accountId: accountIdParam },
+          { accountId: null, account: fa.name },
+        ]
+      } else {
+        where.accountId = accountIdParam
+      }
+    } else if (account) {
+      where.account = account
+    }
 
     const [total, rawTxns] = await Promise.all([
       prisma.transaction.count({ where }),
       prisma.transaction.findMany({
         where,
-        include: { category: true },
+        include: {
+          category: true,
+          finAccount: { select: { id: true, name: true } },
+        },
         orderBy: { occurredAt: 'desc' },
         skip: (page - 1) * pageSize,
         take: pageSize,
       }),
     ])
 
-    // Filter by account client-side (account is a text field, not FK)
-    const filtered = account ? rawTxns.filter(t => (t.account ?? 'Main Checking') === account) : rawTxns
-
-    const transactions = filtered.map(t => ({
+    const transactions = rawTxns.map(t => ({
       id: t.id,
       merchant: t.merchant ?? t.narration,
       date: t.occurredAt.toISOString().slice(0, 10),
       category: t.category?.name ?? 'Other',
-      account: t.account ?? 'Main Checking',
+      account: t.finAccount?.name ?? t.account ?? 'Savings Account',
+      accountId: t.accountId ?? null,
       amount: t.amount,
       type: t.type === 'credit' ? 'income' : 'expense',
       tags: (() => { try { return JSON.parse(t.tags) } catch { return [] } })(),
@@ -127,6 +145,8 @@ export async function GET(request: NextRequest) {
       source: t.source,
       occurredAt: t.occurredAt.toISOString(),
       actualPaidDate: t.actualPaidDate?.toISOString().slice(0, 10) ?? null,
+      isTransfer: t.isTransfer ?? false,
+      cardPaid: t.cardPaid ?? false,
     }))
 
     return NextResponse.json({ transactions, total, page, pageSize })
@@ -136,8 +156,9 @@ export async function GET(request: NextRequest) {
     if (error instanceof Error && error.message === 'UNAUTHORIZED') {
       return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
-    console.error('Transactions GET error:', error)
-    return NextResponse.json({ error: 'Failed to fetch transactions' }, { status: 500 })
+    const msg = error instanceof Error ? error.message : String(error)
+    console.error('Transactions GET error:', msg)
+    return NextResponse.json({ error: msg }, { status: 500 })
   }
 }
 
@@ -146,19 +167,94 @@ export async function POST(request: NextRequest) {
     const userId = await requireUserId()
     const body = await request.json()
 
+    // Handle bank-to-bank transfer
+    if (body.type === 'transfer') {
+      // Accept either accountId (new) or account name string (legacy)
+      const { fromAccount: fromName, toAccount: toName,
+              fromAccountId, toAccountId,
+              amount: rawAmt, date: dateStr, note, paidBillIds } = body
+      const amount = parseFloat(rawAmt)
+
+      // Resolve names from FinancialAccount if IDs provided
+      let fromAccount = fromName as string
+      let toAccount   = toName   as string
+      let resolvedFromId: string | undefined = fromAccountId
+      let resolvedToId:   string | undefined = toAccountId
+
+      if (fromAccountId || toAccountId) {
+        const ids = [fromAccountId, toAccountId].filter(Boolean)
+        const fas = await prisma.financialAccount.findMany({ where: { id: { in: ids }, userId } })
+        const faMap = new Map(fas.map(fa => [fa.id, fa.name]))
+        if (fromAccountId) fromAccount = faMap.get(fromAccountId) ?? fromName ?? fromAccountId
+        if (toAccountId)   toAccount   = faMap.get(toAccountId)   ?? toName   ?? toAccountId
+      } else {
+        // Name-only path: look up IDs for backward compat
+        const fas = await prisma.financialAccount.findMany({
+          where: { userId, name: { in: [fromAccount, toAccount].filter(Boolean) } },
+        })
+        const nameMap = new Map(fas.map(fa => [fa.name, fa.id]))
+        resolvedFromId = nameMap.get(fromAccount) ?? undefined
+        resolvedToId   = nameMap.get(toAccount)   ?? undefined
+      }
+
+      if (!fromAccount || !toAccount) return NextResponse.json({ error: 'From and To accounts required' }, { status: 400 })
+      if (fromAccount === toAccount && resolvedFromId === resolvedToId) return NextResponse.json({ error: 'From and To accounts must be different' }, { status: 400 })
+      if (!isFinite(amount) || amount <= 0) return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
+      const categoryId = await ensureCategory('Transfer')
+      const occurredAt = new Date((dateStr ?? new Date().toISOString().slice(0, 10)) + 'T12:00:00')
+      const [debitTx, creditTx] = await prisma.$transaction(async (tx) => {
+        const debit = await tx.transaction.create({
+          data: { userId, merchant: `Transfer to ${toAccount}`, narration: `Transfer to ${toAccount}`, amount, type: 'debit', categoryId, account: fromAccount, accountId: resolvedFromId ?? null, tags: '[]', wealthGroup: null, source: 'manual', occurredAt, isTransfer: true, note: note ?? null },
+        })
+        const credit = await tx.transaction.create({
+          data: { userId, merchant: `Transfer from ${fromAccount}`, narration: `Transfer from ${fromAccount}`, amount, type: 'credit', categoryId, account: toAccount, accountId: resolvedToId ?? null, tags: '[]', wealthGroup: null, source: 'manual', occurredAt, isTransfer: true, linkedTxId: debit.id, note: note ?? null },
+        })
+        await tx.transaction.update({ where: { id: debit.id }, data: { linkedTxId: credit.id } })
+        // Mark selected bills as paid and link them to this transfer credit (for cascade un-pay on delete)
+        if (Array.isArray(paidBillIds) && paidBillIds.length > 0) {
+          await tx.transaction.updateMany({
+            where: { userId, id: { in: paidBillIds } },
+            data: { cardPaid: true, linkedTxId: credit.id },
+          })
+        }
+        return [debit, credit]
+      })
+      return NextResponse.json({ ok: true, debitId: debitTx.id, creditId: creditTx.id })
+    }
+
     // Support both new Ledgerly format and legacy format
     const isNewFormat = !!(body.merchant ?? body.date)
 
     if (isNewFormat) {
       // New format: { merchant, date, amount, type (expense/income), category, account, tags, source }
-      const merchant = (body.merchant ?? body.narration ?? '').trim()
-      const dateStr   = body.date ?? new Date().toISOString().slice(0, 10)
-      const amount    = parseFloat(body.amount)
-      const txType    = body.type === 'income' ? 'credit' : 'debit'
-      const catName   = body.category ?? 'Other'
-      const account   = (body.account ?? 'Main Checking').trim()
-      const tags      = Array.isArray(body.tags) ? body.tags.map((t: string) => t.trim()).filter(Boolean) : []
-      const source    = body.source ?? 'manual'
+      const merchant       = (body.merchant ?? body.narration ?? '').trim()
+      const dateStr        = body.date ?? new Date().toISOString().slice(0, 10)
+      const amount         = parseFloat(body.amount)
+      const txType         = body.type === 'income' ? 'credit' : 'debit'
+      const catName        = body.category ?? 'Other'
+      const tags           = Array.isArray(body.tags) ? body.tags.map((t: string) => t.trim()).filter(Boolean) : []
+      const source         = body.source ?? 'manual'
+      const incomingAccId  = body.accountId as string | undefined
+      // Resolve account name from FinancialAccount if ID provided, else use name string
+      let account = (body.account ?? '').trim()
+      let resolvedAccountId: string | null = incomingAccId ?? null
+      if (incomingAccId && !body.account) {
+        const fa = await prisma.financialAccount.findUnique({ where: { id: incomingAccId } })
+        if (fa && fa.userId === userId) account = fa.name
+        else resolvedAccountId = null
+      } else if (!incomingAccId && account) {
+        const fa = await prisma.financialAccount.findUnique({ where: { userId_name: { userId, name: account } } })
+        if (fa) resolvedAccountId = fa.id
+      }
+      // If still no account, use the user's first FinancialAccount as fallback
+      if (!account) {
+        const defaultFa = await prisma.financialAccount.findFirst({
+          where: { userId },
+          orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }],
+        })
+        if (defaultFa) { account = defaultFa.name; resolvedAccountId = defaultFa.id }
+        else account = 'Savings Account'
+      }
 
       if (!merchant) return NextResponse.json({ error: 'Merchant is required' }, { status: 400 })
       if (!isFinite(amount) || amount <= 0) return NextResponse.json({ error: 'Invalid amount' }, { status: 400 })
@@ -204,6 +300,7 @@ export async function POST(request: NextRequest) {
           type: txType,
           categoryId,
           account,
+          accountId: resolvedAccountId,
           tags: JSON.stringify(tags),
           wealthGroup,
           source,
@@ -211,7 +308,7 @@ export async function POST(request: NextRequest) {
           occurredAt,
           actualPaidDate,
         },
-        include: { category: true },
+        include: { category: true, finAccount: { select: { name: true } } },
       })
 
       // Check budget alerts
@@ -244,7 +341,8 @@ export async function POST(request: NextRequest) {
           merchant: transaction.merchant ?? transaction.narration,
           date: transaction.occurredAt.toISOString().slice(0, 10),
           category: transaction.category?.name ?? 'Other',
-          account: transaction.account ?? 'Main Checking',
+          account: transaction.finAccount?.name ?? transaction.account ?? 'Savings Account',
+          accountId: transaction.accountId ?? null,
           amount: transaction.amount,
           type: transaction.type === 'credit' ? 'income' : 'expense',
           tags: (() => { try { return JSON.parse(transaction.tags) } catch { return [] } })(),
@@ -293,7 +391,7 @@ export async function PATCH(request: NextRequest) {
   try {
     const userId = await requireUserId()
     const body = await request.json()
-    const { id, category, tags, account, merchant, amount, date, wealthGroup: wgPatch } = body
+    const { id, category, tags, account, accountId: patchAccountId, merchant, amount, date, wealthGroup: wgPatch, cardPaid } = body
 
     if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
@@ -328,12 +426,27 @@ export async function PATCH(request: NextRequest) {
         })
       }
     }
-    if (account !== undefined) updates.account = account
+    if (account !== undefined) {
+      updates.account = account
+      // Also update accountId if we can resolve this name
+      if (account) {
+        const fa = await prisma.financialAccount.findUnique({ where: { userId_name: { userId, name: account } } })
+        if (fa) updates.accountId = fa.id
+      }
+    }
+    if (patchAccountId !== undefined) {
+      updates.accountId = patchAccountId
+      if (patchAccountId) {
+        const fa = await prisma.financialAccount.findUnique({ where: { id: patchAccountId } })
+        if (fa && fa.userId === userId) updates.account = fa.name
+      }
+    }
+    if (cardPaid !== undefined) updates.cardPaid = Boolean(cardPaid)
 
     const updated = await prisma.transaction.update({
       where: { id },
       data: updates,
-      include: { category: true },
+      include: { category: true, finAccount: { select: { name: true } } },
     })
 
     return NextResponse.json({
@@ -342,7 +455,8 @@ export async function PATCH(request: NextRequest) {
         merchant: updated.merchant ?? updated.narration,
         date: updated.occurredAt.toISOString().slice(0, 10),
         category: updated.category?.name ?? 'Other',
-        account: updated.account ?? 'Main Checking',
+        account: updated.finAccount?.name ?? updated.account ?? 'Savings Account',
+        accountId: updated.accountId ?? null,
         amount: updated.amount,
         type: updated.type === 'credit' ? 'income' : 'expense',
         tags: (() => { try { return JSON.parse(updated.tags) } catch { return [] } })(),
@@ -370,6 +484,18 @@ export async function DELETE(request: NextRequest) {
     // Batch delete
     if (ids) {
       const idList = ids.split(',').map(s => s.trim()).filter(Boolean)
+      // Un-mark bills linked to any credit transfers in this batch before deleting
+      const creditTransfers = await prisma.transaction.findMany({
+        where: { id: { in: idList }, userId, isTransfer: true, type: 'credit' },
+        select: { id: true },
+      })
+      if (creditTransfers.length > 0) {
+        const creditIds = creditTransfers.map(t => t.id)
+        await prisma.transaction.updateMany({
+          where: { userId, linkedTxId: { in: creditIds }, cardPaid: true, isTransfer: false },
+          data: { cardPaid: false, linkedTxId: null },
+        })
+      }
       await prisma.transaction.deleteMany({ where: { id: { in: idList }, userId } })
       return NextResponse.json({ success: true, deleted: idList.length })
     }
@@ -378,6 +504,22 @@ export async function DELETE(request: NextRequest) {
 
     const existing = await prisma.transaction.findFirst({ where: { id, userId } })
     if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+    // If this is a transfer, un-mark any bills paid by this transfer, then delete both legs
+    if (existing.isTransfer) {
+      // Find the credit side (the card payment) — could be this tx or its linked partner
+      const creditId = existing.type === 'credit' ? id : existing.linkedTxId
+      if (creditId) {
+        await prisma.transaction.updateMany({
+          where: { userId, linkedTxId: creditId, cardPaid: true, isTransfer: false },
+          data: { cardPaid: false, linkedTxId: null },
+        })
+      }
+      if (existing.linkedTxId) {
+        await prisma.transaction.deleteMany({ where: { id: { in: [id, existing.linkedTxId] }, userId } })
+        return NextResponse.json({ success: true })
+      }
+    }
 
     await prisma.transaction.delete({ where: { id } })
 

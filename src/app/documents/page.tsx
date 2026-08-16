@@ -21,7 +21,6 @@ interface EditableRow {
   ruleMatched?: string
 }
 
-const ACCOUNTS = ['Savings Account', 'Salary Account', 'Cash', 'Credit Card', 'Debit Card']
 
 function applyRules(merchant: string, rules: Rule[]): { category: string; wealthGroup: WealthGroup | null; matched: string | undefined } {
   for (const rule of rules) {
@@ -63,10 +62,16 @@ export default function DocumentsPage() {
   const [undoing, setUndoing]         = useState(false)
   const [error, setError]             = useState('')
   const [dragging, setDragging]       = useState(false)
-  const [account, setAccount]         = useState('Savings Account')
+  const [account, setAccount]         = useState('')
+  const [finAccounts, setFinAccounts] = useState<{ id: string; name: string }[]>([])
 
   useEffect(() => {
     fetch('/api/rules').then(r => r.json()).then(d => { rulesRef.current = d.rules ?? [] }).catch(() => {})
+    fetch('/api/fin-accounts').then(r => r.json()).then(d => {
+      const accs = d.accounts ?? []
+      setFinAccounts(accs)
+      if (accs.length > 0) setAccount(accs[0].id)
+    }).catch(() => {})
   }, [])
 
   const updateRow = useCallback((idx: number, patch: Partial<EditableRow>) => {
@@ -127,7 +132,7 @@ export default function DocumentsPage() {
             amount: row.editAmount || row.amount,
             type: effectiveType,
             category: row.category,
-            account, source: 'import',
+            accountId: account || undefined, source: 'import',
             wealthGroup: effectiveGroup,
           }),
         })
@@ -186,6 +191,24 @@ export default function DocumentsPage() {
       </div>
 
       <div className="card p-6 space-y-5">
+
+        {/* Account selector — always visible */}
+        <div className="flex items-center gap-3">
+          <label style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-2)', flexShrink: 0 }}>Import to account</label>
+          <div className="relative" style={{ maxWidth: 260 }}>
+            <select value={account} onChange={e => setAccount(e.target.value)} className="form-select"
+              style={{ color: account ? 'var(--text-1)' : 'var(--text-3)' }}>
+              {finAccounts.length === 0
+                ? <option value="">Loading accounts…</option>
+                : <>
+                    {!account && <option value="" disabled>Choose your account</option>}
+                    {finAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                  </>
+              }
+            </select>
+            <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+          </div>
+        </div>
 
         {/* Drop zone */}
         {!rows && !parsing && (
@@ -262,17 +285,8 @@ export default function DocumentsPage() {
               <button className="btn-ghost" style={{ padding: 6 }} onClick={clearFile}><X size={14} /></button>
             </div>
 
-            {/* Account selector */}
-            <div className="flex items-center gap-3">
-              <label style={{ fontSize: 13, fontWeight: 500, color: 'var(--text-2)', flexShrink: 0 }}>Import to account</label>
-              <div className="relative" style={{ maxWidth: 220 }}>
-                <select value={account} onChange={e => setAccount(e.target.value)} className="form-select">
-                  {ACCOUNTS.map(a => <option key={a}>{a}</option>)}
-                </select>
-                <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
-              </div>
-              <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Tap the group buttons on each row to categorize. Click ▾ to edit.</p>
-            </div>
+            {/* Hint */}
+            <p style={{ fontSize: 12, color: 'var(--text-3)' }}>Tap the group buttons on each row to categorize. Click ▾ to edit.</p>
 
             {/* Per-row list */}
             <div style={{ border: '1px solid var(--border)', borderRadius: 12, overflow: 'hidden' }}>

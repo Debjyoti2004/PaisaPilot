@@ -77,15 +77,19 @@ function parseCSV(text: string, userId: string): Array<{
     const fingerprint = createHash('md5')
       .update(`${userId}|${dateStr}|${merchant.trim().toLowerCase()}|${amount.toFixed(2)}|main checking`)
       .digest('hex')
-    results.push({ merchant, date: dateStr, amount, type, account: 'Main Checking', fingerprint })
+    results.push({ merchant, date: dateStr, amount, type, account: 'Savings Account', fingerprint })
   }
   return results
 }
 
 async function syncForUser(userId: string): Promise<{ filesProcessed: number; imported: number; skipped: number; error?: string }> {
-  const [settings, account] = await Promise.all([
+  const [settings, account, defaultFa] = await Promise.all([
     prisma.appSettings.findUnique({ where: { userId } }),
     prisma.account.findFirst({ where: { userId, provider: 'google' } }),
+    prisma.financialAccount.findFirst({
+      where: { userId },
+      orderBy: [{ isDefault: 'desc' }, { sortOrder: 'asc' }],
+    }),
   ])
 
   if (!settings?.driveEnabled || !settings.driveFolder) return { filesProcessed: 0, imported: 0, skipped: 0 }
@@ -120,7 +124,9 @@ async function syncForUser(userId: string): Promise<{ filesProcessed: number; im
           data: {
             userId, merchant: row.merchant, narration: row.merchant,
             amount: row.amount, type: isIncome ? 'credit' : 'debit',
-            categoryId: cat.id, account: row.account,
+            categoryId: cat.id,
+            account: defaultFa?.name ?? row.account,
+            accountId: defaultFa?.id ?? null,
             tags: '[]', wealthGroup: null, source: 'drive',
             dedupeHash: row.fingerprint,
             occurredAt: new Date(row.date + 'T12:00:00'),

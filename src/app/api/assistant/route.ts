@@ -46,8 +46,8 @@ DAYS LEFT IN MONTH: ${daysLeft}
 MONTH: ${monthLabel}
 
 USER SETTINGS:
-- Expected monthly salary: ${fmt(Number(settings?.expectedSalary ?? 37000))}
-- Savings floor: ${fmt(Number(settings?.savingsFloor ?? 3000))}
+- Expected monthly salary: ${fmt(Number(settings?.expectedSalary ?? 0))}
+- Savings floor: ${fmt(Number(settings?.savingsFloor ?? 0))}
 `
 
   if (period) {

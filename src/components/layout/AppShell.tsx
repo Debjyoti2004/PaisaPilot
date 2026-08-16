@@ -6,6 +6,12 @@ import { MobileNav } from './MobileNav'
 import { TopBar } from './TopBar'
 import { ViewProvider } from '@/contexts/ViewContext'
 import { ViewBanner } from './ViewBanner'
+import dynamic from 'next/dynamic'
+
+const OnboardingGate = dynamic(
+  () => import('@/components/Onboarding').then(m => ({ default: m.OnboardingGate })),
+  { ssr: false }
+)
 
 const PAGE_META: Record<string, { title: string; subtitle?: string }> = {
   '/':              { title: 'Dashboard',     subtitle: 'YOUR MONEY, CLEARLY' },
@@ -46,6 +52,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         <div className="mobile-nav fixed bottom-0 left-0 right-0 z-50 w-full">
           <MobileNav />
         </div>
+        <OnboardingGate />
       </div>
     </ViewProvider>
   )
