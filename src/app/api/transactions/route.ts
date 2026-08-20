@@ -95,11 +95,11 @@ export async function GET(request: NextRequest) {
 
     if (category)  where.category = { name: category }
     if (search)    where.narration = { contains: search, mode: 'insensitive' }
-    if (typeParam === 'income')   where.type = 'credit'
-    if (typeParam === 'expense')  where.type = 'debit'
+    if (typeParam === 'income')   { where.type = 'credit';  where.isTransfer = false }
+    if (typeParam === 'expense')  { where.type = 'debit';   where.isTransfer = false }
     if (typeParam === 'transfer') where.isTransfer = true
     if (wealthGroupParam && wealthGroupParam !== 'income') where.wealthGroup = wealthGroupParam
-    if (wealthGroupParam === 'income') where.type = 'credit'
+    if (wealthGroupParam === 'income') { where.type = 'credit'; where.isTransfer = false }
 
     // Account filter: match by accountId OR by account-name (for unmigrated rows with accountId=null)
     const accountIdParam = searchParams.get('accountId')
