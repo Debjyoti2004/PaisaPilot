@@ -267,7 +267,7 @@ export async function POST(req: NextRequest) {
         include: { envelopes: { include: { category: true } } },
       }),
       prisma.transaction.findMany({
-        where: { userId, occurredAt: { gte: monthStart, lte: monthEnd } },
+        where: { userId, occurredAt: { gte: monthStart, lte: monthEnd }, isTransfer: false },
         include: { category: true },
         orderBy: { occurredAt: 'asc' },
       }),

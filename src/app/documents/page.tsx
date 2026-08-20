@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
-import { Upload, FileText, Cloud, Download, AlertCircle, CheckCircle, ChevronDown, X, RotateCcw, Camera } from 'lucide-react'
+import { Upload, FileText, Cloud, Download, AlertCircle, CheckCircle, ChevronDown, X, RotateCcw, Camera, Mail, FileDown } from 'lucide-react'
 import {
   WealthGroup, NEEDS_CATS, WANTS_CATS, INV_CATS, ALL_CATS, INCOME_CATS,
   GROUP_DEFAULT_CAT, GROUP_META, catToGroup,
@@ -48,6 +48,20 @@ function fmtINR(n: number) {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(n)
 }
 
+const MONTHS_LABEL = ['January','February','March','April','May','June','July','August','September','October','November','December']
+
+function getRecentMonths(n: number) {
+  const months: { value: string; label: string }[] = []
+  const now = new Date()
+  for (let i = 0; i < n; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const value = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+    const label = `${MONTHS_LABEL[d.getMonth()]} ${d.getFullYear()}`
+    months.push({ value, label })
+  }
+  return months
+}
+
 export default function DocumentsPage() {
   const fileRef = useRef<HTMLInputElement>(null)
   const cameraRef = useRef<HTMLInputElement>(null)
@@ -65,12 +79,24 @@ export default function DocumentsPage() {
   const [account, setAccount]         = useState('')
   const [finAccounts, setFinAccounts] = useState<{ id: string; name: string }[]>([])
 
+  // Export statement state
+  const recentMonths = getRecentMonths(13)
+  const [exportAccount, setExportAccount]   = useState('all')
+  const [exportMonth, setExportMonth]       = useState(recentMonths[0]?.value ?? '')
+  const [exportEmail, setExportEmail]       = useState('')
+  const [exporting, setExporting]           = useState(false)
+  const [emailSending, setEmailSending]     = useState(false)
+  const [exportMsg, setExportMsg]           = useState<{ type: 'success' | 'error'; text: string } | null>(null)
+
   useEffect(() => {
     fetch('/api/rules').then(r => r.json()).then(d => { rulesRef.current = d.rules ?? [] }).catch(() => {})
     fetch('/api/fin-accounts').then(r => r.json()).then(d => {
       const accs = d.accounts ?? []
       setFinAccounts(accs)
       if (accs.length > 0) setAccount(accs[0].id)
+    }).catch(() => {})
+    fetch('/api/settings').then(r => r.json()).then(d => {
+      if (d.reportEmail) setExportEmail(d.reportEmail)
     }).catch(() => {})
   }, [])
 
@@ -163,6 +189,60 @@ export default function DocumentsPage() {
   }
 
   function clearFile() { setRows(null); setFileName(''); setFileType(''); setError('') }
+
+  async function downloadCsv() {
+    setExporting(true); setExportMsg(null)
+    try {
+      const [yr, mo] = exportMonth.split('-').map(Number)
+      const monthStart = new Date(yr, mo - 1, 1).toISOString().slice(0, 10)
+      const monthEnd   = new Date(yr, mo, 0).toISOString().slice(0, 10)
+      const params = new URLSearchParams({ dateFrom: monthStart, dateTo: monthEnd, limit: '2000' })
+      if (exportAccount !== 'all') params.set('accountId', exportAccount)
+      const res  = await fetch(`/api/transactions?${params}`)
+      const data = await res.json()
+      const txns: Array<{ occurredAt: string; narration: string; amount: number; type: string; category?: { name: string }; account?: string; wealthGroup?: string; isTransfer?: boolean }> = data.transactions ?? []
+
+      const header = 'Date,Narration,Amount,Type,Category,Account,Group,Transfer'
+      const csvRows = txns.map(t => {
+        const date = t.occurredAt.slice(0, 10)
+        const narration = `"${(t.narration ?? '').replace(/"/g, '""')}"`
+        const amount = t.amount.toFixed(2)
+        const type = t.type === 'credit' ? 'Income' : 'Expense'
+        const cat = t.category?.name ?? ''
+        const acc = t.account ?? ''
+        const group = t.wealthGroup ?? ''
+        const transfer = t.isTransfer ? 'Yes' : 'No'
+        return `${date},${narration},${amount},${type},${cat},${acc},${group},${transfer}`
+      })
+
+      const csv = [header, ...csvRows].join('\n')
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url  = URL.createObjectURL(blob)
+      const a    = document.createElement('a')
+      a.href = url; a.download = `PaisaPilot-Statement-${exportMonth}.csv`
+      a.click(); URL.revokeObjectURL(url)
+      setExportMsg({ type: 'success', text: `Downloaded ${txns.length} transactions as CSV.` })
+    } catch {
+      setExportMsg({ type: 'error', text: 'Download failed. Try again.' })
+    } finally { setExporting(false) }
+  }
+
+  async function emailStatement() {
+    if (!exportEmail) return
+    setEmailSending(true); setExportMsg(null)
+    try {
+      const res = await fetch('/api/statements/email', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accountId: exportAccount === 'all' ? undefined : exportAccount, month: exportMonth, email: exportEmail }),
+      })
+      const d = await res.json()
+      if (!res.ok) throw new Error(d.error || 'Failed')
+      setExportMsg({ type: 'success', text: `Statement emailed to ${exportEmail}.` })
+    } catch (e: unknown) {
+      setExportMsg({ type: 'error', text: e instanceof Error ? e.message : 'Email failed.' })
+    } finally { setEmailSending(false) }
+  }
 
   const totalIncome      = rows?.filter(r => r.type === 'income' || r.wealthGroup === 'income').reduce((s, r) => s + r.editAmount, 0) ?? 0
   const totalExpense     = rows?.filter(r => r.type === 'expense' && r.wealthGroup !== 'income').reduce((s, r) => s + r.editAmount, 0) ?? 0
@@ -478,6 +558,85 @@ export default function DocumentsPage() {
                 </button>
               )}
             </div>
+          </div>
+        )}
+      </div>
+
+      {/* Export statement */}
+      <div className="card p-6 space-y-4">
+        <div>
+          <h4 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-1)' }}>Export statement</h4>
+          <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>Download your PaisaPilot transaction history as CSV or send to your email.</p>
+        </div>
+
+        <div className="grid gap-3" style={{ gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))' }}>
+          {/* Account */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Account</label>
+            <div className="relative">
+              <select value={exportAccount} onChange={e => setExportAccount(e.target.value)} className="form-select">
+                <option value="all">All accounts</option>
+                {finAccounts.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+              <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
+          </div>
+
+          {/* Month */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Month</label>
+            <div className="relative">
+              <select value={exportMonth} onChange={e => setExportMonth(e.target.value)} className="form-select">
+                {recentMonths.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}
+              </select>
+              <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-3)', pointerEvents: 'none' }} />
+            </div>
+          </div>
+
+          {/* Email */}
+          <div>
+            <label style={{ fontSize: 12, fontWeight: 600, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Email address</label>
+            <input
+              type="email"
+              className="form-input"
+              placeholder="you@email.com"
+              value={exportEmail}
+              onChange={e => setExportEmail(e.target.value)}
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3 flex-wrap">
+          <button
+            onClick={downloadCsv}
+            disabled={exporting}
+            className="btn-secondary"
+            style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13 }}
+          >
+            <FileDown size={14} />
+            {exporting ? 'Downloading…' : 'Download CSV'}
+          </button>
+          <button
+            onClick={emailStatement}
+            disabled={emailSending || !exportEmail}
+            className="btn-primary"
+            style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, opacity: exportEmail ? 1 : 0.5 }}
+          >
+            <Mail size={14} />
+            {emailSending ? 'Sending…' : 'Send to email'}
+          </button>
+        </div>
+
+        {exportMsg && (
+          <div className="flex items-center gap-3 px-4 py-3 rounded-xl"
+            style={{
+              background: exportMsg.type === 'success' ? '#f0fdf4' : '#fef2f2',
+              border: `1px solid ${exportMsg.type === 'success' ? '#bbf7d0' : '#fecaca'}`,
+            }}>
+            {exportMsg.type === 'success'
+              ? <CheckCircle size={14} style={{ color: '#16a34a', flexShrink: 0 }} />
+              : <AlertCircle size={14} style={{ color: '#ef4444', flexShrink: 0 }} />}
+            <p style={{ fontSize: 13, color: exportMsg.type === 'success' ? '#15803d' : '#dc2626' }}>{exportMsg.text}</p>
           </div>
         )}
       </div>
