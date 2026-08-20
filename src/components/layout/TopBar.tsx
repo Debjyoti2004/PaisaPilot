@@ -470,7 +470,7 @@ function AddEntryModal({ onClose }: { onClose: () => void }) {
 
               <div>
                 <label style={{ fontSize: 12, fontWeight: 500, color: 'var(--text-2)', display: 'block', marginBottom: 6 }}>Date</label>
-                <input type="date" value={date} onChange={e => setDate(e.target.value)} className="form-input" />
+                <DatePicker value={date} onChange={setDate} />
               </div>
             </div>
           )}
