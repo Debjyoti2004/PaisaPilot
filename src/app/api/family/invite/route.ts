@@ -76,11 +76,8 @@ export async function POST(request: NextRequest) {
       await prisma.familyInvite.delete({ where: { id: invite.id } }).catch(() => {})
       console.error('Email send error:', emailErr)
       const msg = emailErr instanceof Error ? emailErr.message : String(emailErr)
-      const isAuth = msg.includes('535') || msg.includes('BadCredentials') || msg.includes('Invalid login')
       return NextResponse.json(
-        { error: isAuth
-            ? 'Email delivery failed: Gmail credentials are invalid. Please update SMTP_USER and SMTP_PASS in your .env.local and restart the server.'
-            : `Email delivery failed: ${msg}` },
+        { error: `Email delivery failed: ${msg}` },
         { status: 500 }
       )
     }

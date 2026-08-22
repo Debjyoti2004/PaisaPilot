@@ -52,7 +52,7 @@ export function TopBar({ title, subtitle }: TopBarProps) {
         <div className="topbar-title" style={{ display: 'flex', alignItems: 'center', gap: 10, minWidth: 0 }}>
           {/* Logo — mobile only */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src="/favicon.svg" alt="PaisaPilot" className="topbar-logo" style={{ width: 32, height: 32, borderRadius: 9, flexShrink: 0 }} />
+          <img src="/logo.png" alt="PaisaPilot" className="topbar-logo" style={{ width: 40, height: 40, flexShrink: 0 }} />
           <div style={{ minWidth: 0 }}>
             {subtitle && (
               <p style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.1em', color: 'var(--text-3)', marginBottom: 1 }}>

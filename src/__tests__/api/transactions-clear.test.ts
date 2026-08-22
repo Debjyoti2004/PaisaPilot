@@ -82,7 +82,7 @@ describe('POST /api/transactions/clear', () => {
   })
 
   it('stores OTP and returns masked email (dev fallback path)', async () => {
-    // In test env, RESEND_API_KEY is unset so sendEmail throws → dev branch runs
+    // In test env, SMTP_USER is unset so sendEmail throws → dev branch runs
     mockPrisma.user.findUnique.mockResolvedValue({ email: 'user@example.com' })
     mockPrisma.appSettings.upsert.mockResolvedValue({})
 
@@ -110,17 +110,14 @@ describe('POST /api/transactions/clear', () => {
     expect(otp).toMatch(/^\d{6}$/)
   })
 
-  it('returns devOtp in non-production when Resend call fails', async () => {
-    process.env.RESEND_API_KEY = 'test-key'
+  it('returns devOtp in non-production when email sending fails', async () => {
     mockPrisma.user.findUnique.mockResolvedValue({ email: 'user@example.com' })
     mockPrisma.appSettings.upsert.mockResolvedValue({})
-    mockFetch.mockResolvedValue({ ok: false, text: async () => 'bad request' })
 
     const res = await POST(new NextRequest('http://localhost/api/transactions/clear', { method: 'POST' }))
     const body = await res.json()
     expect(body.devOtp).toBeDefined()
     expect(body.devOtp).toMatch(/^\d{6}$/)
-    delete process.env.RESEND_API_KEY
   })
 })
 

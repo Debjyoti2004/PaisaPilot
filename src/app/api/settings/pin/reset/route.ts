@@ -3,52 +3,22 @@ import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 import { prisma } from '@/lib/prisma'
 import bcrypt from 'bcryptjs'
+import { sendEmail, emailLogoBlock } from '@/lib/email-utils'
 
 function genOtp() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
-async function sendEmail(to: string, subject: string, html: string) {
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) throw new Error('RESEND_API_KEY not set')
-  const from = process.env.RESEND_FROM ?? 'PaisaPilot <onboarding@resend.dev>'
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({ from, to, subject, html }),
-  })
-  if (!res.ok) {
-    const body = await res.text()
-    throw new Error(`Email send failed: ${body}`)
-  }
-}
-
-// POST — send OTP to registered email
-export async function POST() {
-  const session = await getServerSession(authOptions)
-  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-  const user = await prisma.user.findUnique({ where: { email: session.user.email } })
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const otp = genOtp()
-  const expiry = new Date(Date.now() + 10 * 60 * 1000) // 10 min
-
-  await prisma.appSettings.upsert({
-    where: { userId: user.id },
-    update: { pinOtp: otp, pinOtpExpiry: expiry },
-    create: { userId: user.id, pinOtp: otp, pinOtpExpiry: expiry },
-  })
-
-  try {
-    await sendEmail(user.email!, 'Your PIN Reset OTP — PaisaPilot', `
+async function sendPinResetEmail(to: string, otp: string) {
+  const html = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f4f4f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
   <div style="max-width:480px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-    <div style="background:#6558D3;padding:28px 32px">
-      <p style="margin:0;font-size:13px;font-weight:600;color:rgba(255,255,255,0.7);letter-spacing:0.08em;text-transform:uppercase">PaisaPilot</p>
-      <h1 style="margin:6px 0 0;font-size:22px;font-weight:800;color:#fff">PIN Reset Request</h1>
+    <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);padding:24px 32px 20px">
+      ${emailLogoBlock()}
+      <h1 style="margin:0;font-size:22px;font-weight:800;color:#fff">PIN Reset Request</h1>
     </div>
     <div style="padding:28px 32px">
       <p style="margin:0 0 20px;font-size:15px;color:#374151;line-height:1.6">
@@ -61,12 +31,36 @@ export async function POST() {
       </div>
       <p style="margin:0;font-size:13px;color:#9ca3af">If you didn't request this, you can safely ignore this email. Your PIN remains unchanged.</p>
     </div>
+    <div style="padding:16px 32px 24px;border-top:1px solid #f3f4f6">
+      <p style="margin:0;font-size:11px;color:#9ca3af">PaisaPilot · Your money, clearly. Sent to ${to}.</p>
+    </div>
   </div>
 </body>
-</html>`)
+</html>`
+
+  await sendEmail({ to, subject: 'Your PIN Reset OTP — PaisaPilot', html })
+}
+
+// POST — send OTP to registered email
+export async function POST() {
+  const session = await getServerSession(authOptions)
+  if (!session?.user?.email) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const user = await prisma.user.findUnique({ where: { email: session.user.email } })
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const otp = genOtp()
+  const expiry = new Date(Date.now() + 10 * 60 * 1000)
+
+  await prisma.appSettings.upsert({
+    where: { userId: user.id },
+    update: { pinOtp: otp, pinOtpExpiry: expiry },
+    create: { userId: user.id, pinOtp: otp, pinOtpExpiry: expiry },
+  })
+
+  try {
+    await sendPinResetEmail(user.email!, otp)
   } catch (e) {
     console.error('PIN reset email failed:', e)
-    // In dev: return OTP so it can be tested without a verified domain
     if (process.env.NODE_ENV !== 'production') {
       console.log(`[DEV] PIN reset OTP for ${user.email}: ${otp}`)
       const [local, domain] = user.email!.split('@')
@@ -76,7 +70,6 @@ export async function POST() {
     return NextResponse.json({ error: 'Failed to send OTP email. Please try again or contact support.' }, { status: 500 })
   }
 
-  // Return masked email for display
   const [local, domain] = user.email!.split('@')
   const masked = local.slice(0, 2) + '***@' + domain
   return NextResponse.json({ ok: true, maskedEmail: masked })

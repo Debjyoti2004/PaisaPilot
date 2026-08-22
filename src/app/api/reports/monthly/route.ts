@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
 import { jsPDF } from 'jspdf'
-import nodemailer from 'nodemailer'
+import { sendEmail, emailLogoBlock } from '@/lib/email-utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -88,9 +88,9 @@ function buildEmailHtml(p: EmailParams): string {
   <tr><td style="background:linear-gradient(135deg,#4f46e5 0%,#6366f1 60%,#818cf8 100%);border-radius:12px 12px 0 0;padding:0;">
     <table width="100%" cellpadding="0" cellspacing="0">
       <tr>
-        <td style="padding:28px 32px 20px;">
-          <div style="font-size:22px;font-weight:800;color:#ffffff;letter-spacing:-0.5px;">PaisaPilot</div>
-          <div style="font-size:12px;color:rgba(255,255,255,0.7);margin-top:2px;letter-spacing:0.5px;">PERSONAL FINANCE STATEMENT</div>
+        <td style="padding:24px 32px 20px;">
+          ${emailLogoBlock()}
+          <div style="font-size:11px;color:rgba(255,255,255,0.7);letter-spacing:0.5px;text-transform:uppercase;">Personal Finance Statement</div>
         </td>
         <td style="padding:28px 32px 20px;text-align:right;vertical-align:top;">
           <div style="font-size:13px;font-weight:700;color:#ffffff;">${monthLabel.toUpperCase()}</div>
@@ -302,19 +302,39 @@ export async function POST(req: NextRequest) {
       y += 4
     }
 
-    // Header
-    doc.setFillColor(99, 102, 241)
-    doc.rect(0, 0, W, 30, 'F')
+    // Header background
+    doc.setFillColor(79, 70, 229)
+    doc.rect(0, 0, W, 36, 'F')
+
+    // Pig logo at (15, 4), size 28mm
+    const LOGO_X = 15, LOGO_Y = 4, LOGO_S = 28
+    const sc = (v: number) => v / 48 * LOGO_S
+    doc.setFillColor(85, 73, 211)  // #5549D3
+    doc.roundedRect(LOGO_X, LOGO_Y, LOGO_S, LOGO_S, 3.5, 3.5, 'F')
+    doc.setFillColor(255, 255, 255)
+    doc.circle(LOGO_X + sc(13), LOGO_Y + sc(16), sc(5), 'F')
+    doc.ellipse(LOGO_X + sc(23), LOGO_Y + sc(28), sc(14), sc(11), 'F')
+    doc.ellipse(LOGO_X + sc(36), LOGO_Y + sc(28), sc(4.5), sc(4), 'F')
+    doc.rect(LOGO_X + sc(13), LOGO_Y + sc(37), sc(4.5), sc(5), 'F')
+    doc.rect(LOGO_X + sc(19), LOGO_Y + sc(37), sc(4.5), sc(5), 'F')
+    doc.rect(LOGO_X + sc(25), LOGO_Y + sc(37), sc(4.5), sc(5), 'F')
+    doc.rect(LOGO_X + sc(31), LOGO_Y + sc(37), sc(4.5), sc(5), 'F')
+    doc.setFillColor(85, 73, 211)  // coin slot + eye in background color
+    doc.rect(LOGO_X + sc(18.5), LOGO_Y + sc(16), sc(9), sc(2.5), 'F')
+    doc.circle(LOGO_X + sc(31), LOGO_Y + sc(24), sc(1.5), 'F')
+
+    // Header text (right of logo)
+    const TX = LOGO_X + LOGO_S + 6
     doc.setTextColor(255, 255, 255)
     doc.setFontSize(20)
     doc.setFont('helvetica', 'bold')
-    doc.text('PaisaPilot', 15, 13)
-    doc.setFontSize(11)
+    doc.text('PaisaPilot', TX, 15)
+    doc.setFontSize(10)
     doc.setFont('helvetica', 'normal')
-    doc.text(`Monthly Report — ${monthLabel}`, 15, 22)
-    doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, W - 15, 22, { align: 'right' })
+    doc.text(`Monthly Report — ${monthLabel}`, TX, 24)
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-IN')}`, W - 15, 24, { align: 'right' })
 
-    y = 40
+    y = 44
 
     // Summary cards
     doc.setTextColor(30, 30, 60)
@@ -488,29 +508,13 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-      return new NextResponse(pdfBuffer, {
-        headers: {
-          'Content-Type': 'application/pdf',
-          'Content-Disposition': `attachment; filename="PaisaPilot-${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}.pdf"`,
-        },
-      })
-    }
-
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-    })
-
-    await transporter.sendMail({
-      from: `PaisaPilot <${process.env.SMTP_USER}>`,
+    await sendEmail({
       to: toEmail,
       subject: `PaisaPilot — Your ${monthLabel} Financial Report`,
       html: buildEmailHtml({ monthLabel, totalIncome, totalExpense, netSavings, totalSavings, transactions, period, goals, catRows }),
       attachments: [{
         filename: `PaisaPilot-${monthStart.getFullYear()}-${String(monthStart.getMonth() + 1).padStart(2, '0')}.pdf`,
         content: pdfBuffer,
-        contentType: 'application/pdf',
       }],
     })
 

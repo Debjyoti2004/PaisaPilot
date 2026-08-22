@@ -8,9 +8,9 @@ export const metadata: Metadata = {
   title: 'PaisaPilot — Personal Finance',
   description: 'Personal finance tracker. Track expenses, manage budgets, grow savings.',
   icons: {
-    icon: '/favicon.svg',
-    shortcut: '/favicon.svg',
-    apple: '/favicon.svg',
+    icon: '/logo.png',
+    shortcut: '/logo.png',
+    apple: '/logo.png',
   },
 }
 

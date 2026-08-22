@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
+import { sendEmail, emailLogoBlock } from '@/lib/email-utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -8,25 +9,16 @@ function genOtp() {
   return String(Math.floor(100000 + Math.random() * 900000))
 }
 
-async function sendEmail(to: string, otp: string) {
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) throw new Error('RESEND_API_KEY not set')
-  const from = process.env.RESEND_FROM ?? 'PaisaPilot <onboarding@resend.dev>'
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      from, to,
-      subject: 'Confirm: Clear all transactions — PaisaPilot',
-      html: `
+async function sendClearOtpEmail(to: string, otp: string) {
+  const html = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f4f4f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
   <div style="max-width:480px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-    <div style="background:#dc2626;padding:28px 32px">
-      <p style="margin:0;font-size:13px;font-weight:600;color:rgba(255,255,255,0.7);letter-spacing:0.08em;text-transform:uppercase">PaisaPilot</p>
-      <h1 style="margin:6px 0 0;font-size:22px;font-weight:800;color:#fff">⚠️ Clear All Transactions</h1>
+    <div style="background:linear-gradient(135deg,#dc2626 0%,#b91c1c 100%);padding:24px 32px 20px">
+      ${emailLogoBlock()}
+      <h1 style="margin:0;font-size:22px;font-weight:800;color:#fff">⚠️ Clear All Transactions</h1>
     </div>
     <div style="padding:28px 32px">
       <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6">
@@ -39,12 +31,14 @@ async function sendEmail(to: string, otp: string) {
       </div>
       <p style="margin:0;font-size:13px;color:#9ca3af">If you did not request this, ignore this email — your data is safe.</p>
     </div>
+    <div style="padding:16px 32px 24px;border-top:1px solid #f3f4f6">
+      <p style="margin:0;font-size:11px;color:#9ca3af">PaisaPilot · Your money, clearly. Sent to ${to}.</p>
+    </div>
   </div>
 </body>
-</html>`,
-    }),
-  })
-  if (!res.ok) throw new Error(`Email failed: ${await res.text()}`)
+</html>`
+
+  await sendEmail({ to, subject: 'Confirm: Clear all transactions — PaisaPilot', html })
 }
 
 // POST — send OTP to user's email before clearing
@@ -52,12 +46,11 @@ export async function POST() {
   try {
     const userId = await requireUserId()
 
-    // Look up the user's email from DB
     const user = await prisma.user.findUnique({ where: { id: userId }, select: { email: true } })
     if (!user?.email) return NextResponse.json({ error: 'User email not found' }, { status: 400 })
 
     const otp = genOtp()
-    const expiry = new Date(Date.now() + 10 * 60 * 1000) // 10 min
+    const expiry = new Date(Date.now() + 10 * 60 * 1000)
 
     await prisma.appSettings.upsert({
       where: { userId },
@@ -66,10 +59,9 @@ export async function POST() {
     })
 
     try {
-      await sendEmail(user.email, otp)
+      await sendClearOtpEmail(user.email, otp)
     } catch (e) {
       console.error('Clear OTP email failed:', e)
-      // In dev: return OTP in response so it can be tested without Resend
       const [local, domain] = user.email.split('@')
       const masked = local!.slice(0, 2) + '***@' + domain
       if (process.env.NODE_ENV !== 'production') {
@@ -110,7 +102,6 @@ export async function DELETE(req: NextRequest) {
       return NextResponse.json({ error: 'Incorrect OTP. Please check and try again.' }, { status: 400 })
     }
 
-    // OTP valid — clear transactions and wipe OTP atomically
     await prisma.$transaction([
       prisma.transaction.deleteMany({ where: { userId } }),
       prisma.appSettings.update({ where: { userId }, data: { clearOtp: null, clearOtpExpiry: null } }),

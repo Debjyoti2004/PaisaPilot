@@ -111,8 +111,11 @@ function LockScreen({ onVerified, onForgot }: { onVerified: () => void; onForgot
     <DarkBg>
       {/* Logo */}
       <div style={{ marginBottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/favicon.svg" alt="PaisaPilot" style={{ width: 60, height: 60, borderRadius: 18, marginBottom: 16, boxShadow: '0 8px 32px rgba(101,88,211,0.5)' }} />
+        <div style={{ position: 'relative', display: 'inline-flex', justifyContent: 'center', marginBottom: 16 }}>
+          <div style={{ position: 'absolute', bottom: -8, left: '50%', transform: 'translateX(-50%)', width: 80, height: 24, borderRadius: '50%', background: 'rgba(101,88,211,0.55)', filter: 'blur(16px)', zIndex: 0 }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="PaisaPilot" style={{ width: 110, height: 110, position: 'relative', zIndex: 1 }} />
+        </div>
         <p style={{ margin: 0, fontSize: 22, fontWeight: 800, color: '#fff', letterSpacing: '-0.01em' }}>PaisaPilot</p>
         <p style={{ margin: '6px 0 0', fontSize: 14, color: 'rgba(255,255,255,0.45)' }}>Enter your PIN to continue</p>
       </div>
@@ -267,8 +270,11 @@ function SetupEnter({ onDone, onSkip }: { onDone: () => void; onSkip: () => void
   return (
     <DarkBg>
       <div style={{ marginBottom: 36, display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/favicon.svg" alt="PaisaPilot" style={{ width: 60, height: 60, borderRadius: 18, marginBottom: 16, boxShadow: '0 8px 32px rgba(101,88,211,0.5)' }} />
+        <div style={{ position: 'relative', display: 'inline-flex', justifyContent: 'center', marginBottom: 16 }}>
+          <div style={{ position: 'absolute', bottom: -8, left: '50%', transform: 'translateX(-50%)', width: 80, height: 24, borderRadius: '50%', background: 'rgba(101,88,211,0.55)', filter: 'blur(16px)', zIndex: 0 }} />
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src="/logo.png" alt="PaisaPilot" style={{ width: 110, height: 110, position: 'relative', zIndex: 1 }} />
+        </div>
         <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: '#fff' }}>
           {step === 'enter' ? 'Choose a PIN' : 'Confirm your PIN'}
         </p>

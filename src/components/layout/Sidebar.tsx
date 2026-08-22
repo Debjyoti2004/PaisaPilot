@@ -10,6 +10,7 @@ import {
   Sparkles, Gauge, ChevronRight, Shield, FileSearch,
   PanelLeftClose, PanelLeftOpen, StickyNote,
 } from 'lucide-react'
+import { LogoIcon } from '@/components/ui/Logo'
 
 const EXPANDED_W = 238
 const COLLAPSED_W = 60
@@ -119,12 +120,7 @@ export function Sidebar() {
       >
         {!collapsed && (
           <div className="flex items-center gap-2.5 pl-2">
-            <div
-              className="w-8 h-8 rounded-xl flex items-center justify-center flex-shrink-0"
-              style={{ background: 'var(--violet)', color: '#fff', fontWeight: 700, fontSize: 15 }}
-            >
-              P
-            </div>
+            <LogoIcon size={52} className="flex-shrink-0" />
             <div>
               <p style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-1)', lineHeight: 1.1 }}>PaisaPilot</p>
               <p style={{ fontSize: 10, color: 'var(--text-3)', marginTop: 1 }}>Personal finance</p>

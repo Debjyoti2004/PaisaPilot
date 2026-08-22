@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
-import nodemailer from 'nodemailer'
+import { sendEmail, emailLogoBlock } from '@/lib/email-utils'
 
 export const dynamic = 'force-dynamic'
 
@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
 
   const html = `<!DOCTYPE html><html><body style="font-family:system-ui,sans-serif;background:#f8fafc;margin:0;padding:24px;">
 <div style="max-width:600px;margin:0 auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
-  <div style="background:linear-gradient(135deg,#6558D3 0%,#8b5cf6 100%);padding:28px 32px;">
-    <p style="color:rgba(255,255,255,0.7);font-size:11px;margin:0 0 4px;text-transform:uppercase;letter-spacing:0.08em;">PaisaPilot</p>
+  <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);padding:24px 32px 20px;">
+    ${emailLogoBlock()}
     <h1 style="color:#fff;font-size:22px;font-weight:800;margin:0;">${monthLabel} Statement</h1>
   </div>
   <div style="padding:28px 32px;">
@@ -93,25 +93,11 @@ export async function POST(req: NextRequest) {
 </div>
 </body></html>`
 
-  if (!process.env.SMTP_USER || !process.env.SMTP_PASS) {
-    return NextResponse.json({ error: 'Email not configured on server' }, { status: 503 })
-  }
-
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
-  })
-
-  await transporter.sendMail({
-    from: `PaisaPilot <${process.env.SMTP_USER}>`,
+  await sendEmail({
     to: toEmail,
     subject: `PaisaPilot — ${monthLabel} Statement`,
     html,
-    attachments: [{
-      filename: `PaisaPilot-Statement-${month}.csv`,
-      content: csv,
-      contentType: 'text/csv',
-    }],
+    attachments: [{ filename: `PaisaPilot-Statement-${month}.csv`, content: Buffer.from(csv) }],
   })
 
   await prisma.notification.create({
