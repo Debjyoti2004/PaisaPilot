@@ -3,6 +3,8 @@ import { prisma } from '@/lib/prisma'
 import { requireUserId } from '@/lib/auth'
 import { jsPDF } from 'jspdf'
 import { sendEmail, emailLogoBlock } from '@/lib/email-utils'
+import fs from 'fs'
+import path from 'path'
 
 export const dynamic = 'force-dynamic'
 
@@ -306,22 +308,14 @@ export async function POST(req: NextRequest) {
     doc.setFillColor(79, 70, 229)
     doc.rect(0, 0, W, 36, 'F')
 
-    // Pig logo at (15, 4), size 28mm
+    // Logo from PNG file
     const LOGO_X = 15, LOGO_Y = 4, LOGO_S = 28
-    const sc = (v: number) => v / 48 * LOGO_S
-    doc.setFillColor(85, 73, 211)  // #5549D3
-    doc.roundedRect(LOGO_X, LOGO_Y, LOGO_S, LOGO_S, 3.5, 3.5, 'F')
-    doc.setFillColor(255, 255, 255)
-    doc.circle(LOGO_X + sc(13), LOGO_Y + sc(16), sc(5), 'F')
-    doc.ellipse(LOGO_X + sc(23), LOGO_Y + sc(28), sc(14), sc(11), 'F')
-    doc.ellipse(LOGO_X + sc(36), LOGO_Y + sc(28), sc(4.5), sc(4), 'F')
-    doc.rect(LOGO_X + sc(13), LOGO_Y + sc(37), sc(4.5), sc(5), 'F')
-    doc.rect(LOGO_X + sc(19), LOGO_Y + sc(37), sc(4.5), sc(5), 'F')
-    doc.rect(LOGO_X + sc(25), LOGO_Y + sc(37), sc(4.5), sc(5), 'F')
-    doc.rect(LOGO_X + sc(31), LOGO_Y + sc(37), sc(4.5), sc(5), 'F')
-    doc.setFillColor(85, 73, 211)  // coin slot + eye in background color
-    doc.rect(LOGO_X + sc(18.5), LOGO_Y + sc(16), sc(9), sc(2.5), 'F')
-    doc.circle(LOGO_X + sc(31), LOGO_Y + sc(24), sc(1.5), 'F')
+    try {
+      const logoPath = path.join(process.cwd(), 'public', 'logo.png')
+      const logoData = fs.readFileSync(logoPath)
+      const logoBase64 = `data:image/png;base64,${logoData.toString('base64')}`
+      doc.addImage(logoBase64, 'PNG', LOGO_X, LOGO_Y, LOGO_S, LOGO_S)
+    } catch { /* skip logo if file missing */ }
 
     // Header text (right of logo)
     const TX = LOGO_X + LOGO_S + 6
