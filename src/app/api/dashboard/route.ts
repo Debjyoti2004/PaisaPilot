@@ -7,8 +7,8 @@ export const dynamic = 'force-dynamic'
 
 function getPeriodRange(period: string, salaryCarryover = false): { start: Date | null; end: Date } {
   const now = new Date()
-  // With salary carryover: "this month" also includes income from day 25 of the previous month
-  // so that salary paid on July 28-31 counts as August income
+  // Use end-of-today so same-day transactions stored at noon don't get cut off by lte: now
+  const endOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59)
   const carryoverDay = salaryCarryover ? 25 : 1
   switch (period) {
     case 'this-month': {
@@ -20,7 +20,7 @@ function getPeriodRange(period: string, salaryCarryover = false): { start: Date 
         start.setMonth(now.getMonth() - 1)
         start.setDate(carryoverDay)
       }
-      return { start, end: now }
+      return { start, end: endOfToday }
     }
     case 'last-month': {
       const s = salaryCarryover
@@ -30,11 +30,11 @@ function getPeriodRange(period: string, salaryCarryover = false): { start: Date 
       return { start: s, end: e }
     }
     case 'last-3-months':
-      return { start: new Date(now.getFullYear(), now.getMonth() - 3, 1), end: now }
+      return { start: new Date(now.getFullYear(), now.getMonth() - 3, 1), end: endOfToday }
     case 'last-6-months':
-      return { start: new Date(now.getFullYear(), now.getMonth() - 6, 1), end: now }
+      return { start: new Date(now.getFullYear(), now.getMonth() - 6, 1), end: endOfToday }
     case 'this-year':
-      return { start: new Date(now.getFullYear(), 0, 1), end: now }
+      return { start: new Date(now.getFullYear(), 0, 1), end: endOfToday }
     default:
       return { start: null, end: now }
   }
