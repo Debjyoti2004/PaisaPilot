@@ -4,8 +4,8 @@ const nextConfig = {
   eslint: { ignoreDuringBuilds: true },
   experimental: {
     serverComponentsExternalPackages: ['@prisma/client', 'prisma', 'pdf-parse', 'nodemailer', 'xlsx', 'nspell'],
+    optimizePackageImports: ['lucide-react'],
   },
-  // webpack config kept for `next build` (production — not used in `next dev --turbo`)
   webpack: (config, { isServer }) => {
     if (!isServer) {
       config.resolve.fallback = {

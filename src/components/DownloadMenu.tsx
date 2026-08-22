@@ -22,6 +22,23 @@ export interface DownloadMenuProps {
   className?: string
 }
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function getLogoDataUrl(): Promise<string | null> {
+  try {
+    const res = await fetch('/logo.png')
+    const blob = await res.blob()
+    return new Promise(resolve => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(reader.result as string)
+      reader.onerror = () => resolve(null)
+      reader.readAsDataURL(blob)
+    })
+  } catch {
+    return null
+  }
+}
+
 // ── Format generators ──────────────────────────────────────────────────────────
 
 function buildCsvText(
@@ -94,18 +111,34 @@ async function downloadAsPDF(
   const margin = 14
   const colW = (pageW - margin * 2) / columns.length
 
-  doc.setFontSize(14)
-  doc.setTextColor(40, 40, 40)
-  doc.text(filename.replace(/-/g, ' '), margin, 16)
+  // Header bar with logo
+  doc.setFillColor(79, 70, 229)
+  doc.rect(0, 0, pageW, 24, 'F')
+  const logo = await getLogoDataUrl()
+  if (logo) {
+    doc.addImage(logo, 'PNG', margin, 2, 20, 20)
+  }
+  doc.setFontSize(13)
+  doc.setFont('helvetica', 'bold')
+  doc.setTextColor(255, 255, 255)
+  doc.text('PaisaPilot', margin + 23, 11)
+  doc.setFontSize(9)
+  doc.setFont('helvetica', 'normal')
+  doc.setTextColor(200, 195, 255)
+  doc.text(filename.replace(/-/g, ' '), margin + 23, 18)
+  doc.setTextColor(180, 175, 240)
+  doc.text(new Date().toLocaleDateString('en-IN'), pageW - margin, 18, { align: 'right' })
 
-  const headerY = 26
+  const headerY = 34
   doc.setFillColor(101, 88, 211)
   doc.rect(margin, headerY - 5, pageW - margin * 2, 8, 'F')
   doc.setFontSize(8)
+  doc.setFont('helvetica', 'bold')
   doc.setTextColor(255, 255, 255)
   columns.forEach((c, i) => doc.text(c.header, margin + i * colW + 2, headerY))
 
   doc.setTextColor(50, 50, 50)
+  doc.setFont('helvetica', 'normal')
   let y = headerY + 10
   rows.forEach((row, ri) => {
     if (y > doc.internal.pageSize.getHeight() - 20) { doc.addPage(); y = 20 }
@@ -120,6 +153,15 @@ async function downloadAsPDF(
     })
     y += 7
   })
+
+  // Page footer
+  const pageCount = doc.getNumberOfPages()
+  for (let i = 1; i <= pageCount; i++) {
+    doc.setPage(i)
+    doc.setFontSize(7)
+    doc.setTextColor(160, 160, 180)
+    doc.text(`PaisaPilot | ${filename.replace(/-/g, ' ')} | Page ${i} of ${pageCount}`, pageW / 2, doc.internal.pageSize.getHeight() - 6, { align: 'center' })
+  }
 
   doc.save(`${filename}.pdf`)
 }
@@ -160,11 +202,17 @@ async function uploadToDrive(
     const { jsPDF } = await import('jspdf')
     const doc = new jsPDF({ orientation: columns.length > 4 ? 'landscape' : 'portrait', unit: 'mm', format: 'a4' })
     const pageW = doc.internal.pageSize.getWidth(); const margin = 14; const colW = (pageW - margin * 2) / columns.length
-    doc.setFontSize(13); doc.setTextColor(40,40,40); doc.text(filename.replace(/-/g,' '), margin, 16)
-    doc.setFillColor(101,88,211); doc.rect(margin, 21, pageW-margin*2, 8, 'F')
-    doc.setFontSize(8); doc.setTextColor(255,255,255)
-    columns.forEach((c,i) => doc.text(c.header, margin+i*colW+2, 27))
-    doc.setTextColor(50,50,50); let y = 37
+    doc.setFillColor(79, 70, 229); doc.rect(0, 0, pageW, 24, 'F')
+    const logo = await getLogoDataUrl()
+    if (logo) doc.addImage(logo, 'PNG', margin, 2, 20, 20)
+    doc.setFontSize(13); doc.setFont('helvetica', 'bold'); doc.setTextColor(255, 255, 255)
+    doc.text('PaisaPilot', margin + 23, 11)
+    doc.setFontSize(9); doc.setFont('helvetica', 'normal'); doc.setTextColor(200, 195, 255)
+    doc.text(filename.replace(/-/g, ' '), margin + 23, 18)
+    doc.setFillColor(101,88,211); doc.rect(margin, 29, pageW-margin*2, 8, 'F')
+    doc.setFontSize(8); doc.setFont('helvetica', 'bold'); doc.setTextColor(255,255,255)
+    columns.forEach((c,i) => doc.text(c.header, margin+i*colW+2, 35))
+    doc.setTextColor(50,50,50); doc.setFont('helvetica', 'normal'); let y = 45
     rows.forEach((row,ri) => {
       if (y > doc.internal.pageSize.getHeight()-20) { doc.addPage(); y = 20 }
       if (ri%2===0) { doc.setFillColor(248,247,255); doc.rect(margin, y-4, pageW-margin*2, 7, 'F') }

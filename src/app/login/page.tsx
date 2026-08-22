@@ -4,6 +4,7 @@ import { signIn, useSession } from 'next-auth/react'
 import { useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { Eye, EyeOff, Mail, Lock, User, Zap } from 'lucide-react'
+import { LogoIcon } from '@/components/ui/Logo'
 
 type Mode = 'signin' | 'register'
 
@@ -105,12 +106,10 @@ export default function LoginPage() {
       <div className="w-full max-w-sm">
 
         {/* Logo */}
-        <div className="flex flex-col items-center mb-8">
-          <div
-            className="w-14 h-14 rounded-2xl flex items-center justify-center mb-4"
-            style={{ background: 'var(--violet)', boxShadow: '0 8px 24px rgba(101,88,211,0.35)' }}
-          >
-            <span style={{ fontSize: 26, fontWeight: 800, color: '#fff' }}>P</span>
+        <div className="flex flex-col items-center mb-5">
+          <div className="mb-2" style={{ position: 'relative', display: 'inline-flex', justifyContent: 'center' }}>
+            <div style={{ position: 'absolute', bottom: -4, left: '50%', transform: 'translateX(-50%)', width: 56, height: 12, borderRadius: '50%', background: 'rgba(101,88,211,0.3)', filter: 'blur(10px)', zIndex: 0 }} />
+            <LogoIcon size={90} style={{ position: 'relative', zIndex: 1 }} />
           </div>
           <h1 style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-1)', letterSpacing: '-0.02em' }}>PaisaPilot</h1>
           <p style={{ fontSize: 13, color: 'var(--text-3)', marginTop: 3 }}>Your money, clearly.</p>

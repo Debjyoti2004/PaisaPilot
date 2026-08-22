@@ -1,3 +1,5 @@
+import { sendEmail, emailLogoBlock } from '@/lib/email-utils'
+
 export async function sendInviteEmail({
   to,
   ownerName,
@@ -11,18 +13,15 @@ export async function sendInviteEmail({
   otp: string
   acceptUrl: string
 }) {
-  const apiKey = process.env.RESEND_API_KEY
-  if (!apiKey) throw new Error('RESEND_API_KEY is not set')
-
   const html = `
 <!DOCTYPE html>
 <html>
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head>
 <body style="margin:0;padding:0;background:#f4f4f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
   <div style="max-width:480px;margin:40px auto;background:#fff;border-radius:16px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08)">
-    <div style="background:#6558D3;padding:28px 32px">
-      <p style="margin:0;font-size:13px;font-weight:600;color:rgba(255,255,255,0.7);letter-spacing:0.08em;text-transform:uppercase">PaisaPilot</p>
-      <h1 style="margin:6px 0 0;font-size:22px;font-weight:800;color:#fff">You've been invited</h1>
+    <div style="background:linear-gradient(135deg,#4f46e5 0%,#7c3aed 100%);padding:24px 32px 20px">
+      ${emailLogoBlock()}
+      <h1 style="margin:0;font-size:22px;font-weight:800;color:#fff">You've been invited</h1>
     </div>
     <div style="padding:28px 32px">
       <p style="margin:0 0 16px;font-size:15px;color:#374151;line-height:1.6">
@@ -57,22 +56,9 @@ export async function sendInviteEmail({
 </body>
 </html>`
 
-  const res = await fetch('https://api.resend.com/emails', {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiKey}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      from: process.env.RESEND_FROM ?? 'PaisaPilot <onboarding@resend.dev>',
-      to: [to],
-      subject: `${ownerName} invited you to view their finances on PaisaPilot — OTP inside`,
-      html,
-    }),
+  await sendEmail({
+    to,
+    subject: `${ownerName} invited you to view their finances on PaisaPilot — OTP inside`,
+    html,
   })
-
-  if (!res.ok) {
-    const err = await res.text()
-    throw new Error(`Resend API error ${res.status}: ${err}`)
-  }
 }
