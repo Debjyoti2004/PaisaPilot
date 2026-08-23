@@ -7,6 +7,7 @@ import { PinLock } from '@/components/PinLock'
 export const metadata: Metadata = {
   title: 'PaisaPilot — Personal Finance',
   description: 'Personal finance tracker. Track expenses, manage budgets, grow savings.',
+  manifest: '/manifest.json',
   icons: {
     icon: '/logo.png',
     shortcut: '/logo.png',
